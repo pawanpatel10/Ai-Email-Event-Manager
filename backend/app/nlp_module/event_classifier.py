@@ -1,0 +1,24 @@
+event_keywords = [
+    "meeting",
+    "schedule",
+    "appointment",
+    "call",
+    "discussion",
+    "session",
+    "meet",
+    "demo",
+    "presentation",
+    "interview",
+    "standup",
+    "sync",
+    "review"
+]
+
+def is_event_email(text):
+    text = text.lower()
+
+    for word in event_keywords:
+        if word in text:
+            return True
+
+    return False
