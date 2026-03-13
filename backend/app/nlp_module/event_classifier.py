@@ -9,10 +9,15 @@ event_keywords = [
     "demo",
     "presentation",
     "interview",
-    "standup",
-    "sync",
-    "review"
+    "review",
+    "deadline",
+    "submit",
+    "submission",
+    "due",
+    "report",
+    "delivery"
 ]
+
 
 def is_event_email(text):
     text = text.lower()

@@ -1,6 +1,11 @@
 import spacy
 
-nlp = spacy.load("en_core_web_sm")
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError as exc:
+    raise RuntimeError(
+        "spaCy model 'en_core_web_sm' is not installed. Run 'python -m spacy download en_core_web_sm' in your active virtual environment and try again."
+    ) from exc
 
 def extract_location(text):
 
