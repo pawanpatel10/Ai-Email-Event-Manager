@@ -1,13 +1,12 @@
 try:
+    from event_classifier import is_event_email
+    from time_parser import extract_time_details
     from entity_extractor import extract_location, extract_description
-    from backend.app.nlp_module.event_classifier import is_event_email
-    from backend.app.nlp_module.time_parser import extract_datetime
-    from backend.app.nlp_module.entity_extractor import extract_location
-    from backend.app.nlp_module.confidence_engine import calculate_confidence
+    from confidence_engine import calculate_confidence
 except ModuleNotFoundError:
     from event_classifier import is_event_email
-    from time_parser import extract_datetime
-    from entity_extractor import extract_location
+    from time_parser import extract_time_details
+    from entity_extractor import extract_location, extract_description
     from confidence_engine import calculate_confidence
 
 
@@ -15,9 +14,10 @@ def process_email(text):
 
     if not is_event_email(text):
         return {"event": False}
-    description = extract_description(text)
-    
-    date, time = extract_datetime(text)
+
+    event_context = extract_description(text).strip()
+
+    date, time, duration, end_time = extract_time_details(text)
 
     location = extract_location(text)
 
@@ -27,7 +27,10 @@ def process_email(text):
         "event": True,
         "date": str(date),
         "time": str(time),
+        "duration": duration,
+        "end_time": str(end_time) if end_time else None,
         "location": location,
+        "event_context": event_context,
         "confidence": confidence
     }
 
