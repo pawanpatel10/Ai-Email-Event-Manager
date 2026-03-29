@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { login as loginApi } from "../services/authService";
+import { login as loginApi, getUserInfo } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 import "./Login.css";
 import GoogleLoginButton from "../components/GoogleLoginButton";
@@ -29,10 +29,25 @@ function Login() {
     try {
       const res = await loginApi(form);
       login(res.accessToken);
+      
+      // Fetch user info after token is stored so /auth/me has Authorization header.
+      try {
+        const userInfo = await getUserInfo();
+        login(res.accessToken, userInfo.user);
+      } catch (_profileError) {
+        // User profile fetch failure should not block login.
+      }
 
       navigate("/home");
     } catch (err) {
-      alert(err.response?.data?.message || "Login failed");
+      const message = err.response?.data?.message || "Login failed";
+
+      if (message.toLowerCase().includes("verify your email")) {
+        alert("Your email is not verified yet. Please verify OTP first.");
+        navigate("/verify-otp", { state: { email: form.email } });
+      } else {
+        alert(message);
+      }
     } finally {
       setLoading(false);
     }
