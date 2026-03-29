@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { verifyOtp, resendOtp } from "../services/authService";
+import { useAuth } from "../context/AuthContext";
 import "./VerifyOtp.css";
 
 function VerifyOtp() {
@@ -10,6 +11,7 @@ function VerifyOtp() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();
 
   const email = location.state?.email;
 
@@ -19,8 +21,7 @@ function VerifyOtp() {
 
     try {
       const res = await verifyOtp({ email, otp });
-
-      localStorage.setItem("accessToken", res.accessToken);
+      login(res.accessToken);
       navigate("/home");
 
     } catch (err) {

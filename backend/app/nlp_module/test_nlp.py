@@ -1,7 +1,7 @@
 from nlp_pipeline import process_email
 
 email = """
-Submit the report EOD.
+Meeting is scheduled at 5 PM in room 300.
 """
 
 result = process_email(email)

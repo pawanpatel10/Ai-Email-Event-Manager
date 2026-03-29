@@ -1,6 +1,6 @@
 import express from "express";
 import { signupUser, verifyOtp, loginUser, refreshAccessToken, logoutUser, resendOtp, forgotPassword,
-    resetPassword, googleLogin
+  resetPassword, googleLogin, getGoogleClientConfig, saveGoogleToken, saveGoogleAuthCode, getGoogleTokenStatus
  } from "../controllers/authController.js";
 import protect from "../middlewares/authMiddleware.js";
 
@@ -21,5 +21,9 @@ router.post("/resend-otp", resendOtp);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 router.post("/google", googleLogin);
+router.get("/google-config", getGoogleClientConfig);
+router.post("/google-token", protect, saveGoogleToken);
+router.post("/google-code", protect, saveGoogleAuthCode);
+router.get("/google-token-status", protect, getGoogleTokenStatus);
 
 export default router;
