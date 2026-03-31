@@ -20,10 +20,9 @@ class DecisionMaker:
     # Confidence threshold for auto-scheduling
     AUTO_SCHEDULE_THRESHOLD = 0.85
 
-    def __init__(self, buffer_minutes=15, top_n=3, auto_resolve_conflicts=True):
+    def __init__(self, buffer_minutes=15, top_n=3):
         self.detector = ConflictDetector(buffer_minutes=buffer_minutes)
         self.finder   = SlotFinder(top_n=top_n)
-        self.auto_resolve_conflicts = auto_resolve_conflicts
 
     def decide(self, raw_event, existing_events):
         """
@@ -60,9 +59,8 @@ class DecisionMaker:
                 raw      = raw_event,
             )
 
-        # ── Step 3: Normalize existing events and run conflict detection ─────
-        normalized_events = self._normalize_existing_events(existing_events)
-        conflict_result = self.detector.check(proposed, normalized_events)
+        # ── Step 3: Run conflict detection ────────────────────────────
+        conflict_result = self.detector.check(proposed, existing_events)
 
         # ── Step 4a: No conflict → auto schedule ──────────────────────
         if not conflict_result["has_conflict"]:
@@ -94,28 +92,9 @@ class DecisionMaker:
             )
 
         # ── Step 4c: Hard conflict → find alternatives ────────────────
-        free_slots = self.finder.find(proposed, normalized_events)
+        free_slots = self.finder.find(proposed, existing_events)
 
         if free_slots:
-            if self.auto_resolve_conflicts:
-                selected_slot = free_slots[0]
-                auto_resolved = {
-                    **proposed,
-                    "start": selected_slot["start"],
-                    "end": selected_slot["end"],
-                }
-                return self._outcome(
-                    action   = "AUTO_SCHEDULE",
-                    proposed = auto_resolved,
-                    reason   = (
-                        f"Conflict with '{hard[0]['with']}' was auto-resolved. "
-                        f"Rescheduled to {selected_slot['label']}."
-                    ),
-                    conflicts= conflict_result["conflicts"],
-                    slots    = free_slots,
-                    raw      = raw_event,
-                )
-
             return self._outcome(
                 action   = "SUGGEST_SLOTS",
                 proposed = proposed,
@@ -164,33 +143,6 @@ class DecisionMaker:
             }
         except Exception:
             return None
-
-    def _normalize_existing_events(self, events):
-        normalized = []
-        for event in events:
-            start = self._to_datetime(event.get("start"))
-            end = self._to_datetime(event.get("end"))
-            if not start or not end or end <= start:
-                continue
-            normalized.append(
-                {
-                    **event,
-                    "start": start,
-                    "end": end,
-                    "title": event.get("title", "Existing Event"),
-                }
-            )
-        return normalized
-
-    def _to_datetime(self, value):
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                return None
-        return None
 
     def _outcome(self, action, proposed, reason, conflicts, slots, raw):
         """Build the final structured response for Member 1 and Member 4."""

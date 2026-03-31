@@ -1,36 +1,16 @@
 from datetime import datetime
-
-
 class ConflictDetector:
 
     def __init__(self, buffer_minutes=15):
-        # Here we have considered a buffer time of 15 mins between 2 events.
-        # If the buffer is violated, it is considered a soft conflict.
+#Here we have considered a buffer time of 15 mins between 2 events , if it clashes , then it is considered a soft conflict. 
         self.buffer_minutes = buffer_minutes
 
     def check(self, proposed, existing_events):
-        proposed_start = self._to_datetime(proposed.get("start"))
-        proposed_end = self._to_datetime(proposed.get("end"))
-        if not proposed_start or not proposed_end or proposed_end <= proposed_start:
-            return {"has_conflict": False, "conflicts": []}
 
-        normalized_proposed = {**proposed, "start": proposed_start, "end": proposed_end}
         conflicts = []
 
         for event in existing_events:
-            existing_start = self._to_datetime(event.get("start"))
-            existing_end = self._to_datetime(event.get("end"))
-            if not existing_start or not existing_end or existing_end <= existing_start:
-                continue
-
-            normalized_event = {
-                **event,
-                "start": existing_start,
-                "end": existing_end,
-                "title": event.get("title", "Existing Event"),
-            }
-
-            result = self._compare(normalized_proposed, normalized_event)
+            result = self._compare(proposed, event)
             if result:
                 conflicts.append(result)
 
@@ -85,14 +65,4 @@ class ConflictDetector:
                 )
             }
 
-        return None
-
-    def _to_datetime(self, value):
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                return None
-        return None
+        return None  

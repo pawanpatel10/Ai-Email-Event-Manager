@@ -35,15 +35,8 @@ class SlotFinder:
         Returns a list of dicts:
           { "start": datetime, "end": datetime, "label": str }
         """
-        proposed_start = self._to_datetime(proposed.get("start"))
-        proposed_end = self._to_datetime(proposed.get("end"))
-        if not proposed_start or not proposed_end:
-            return []
-
-        date = proposed_start.date()
-        duration = proposed_end - proposed_start
-        if duration <= timedelta(0):
-            duration = timedelta(minutes=60)
+        date        = proposed["start"].date()
+        duration    = proposed["end"] - proposed["start"]   # timedelta
 
         # Build the working window for that day
         day_start = datetime.strptime(
@@ -54,22 +47,21 @@ class SlotFinder:
         )
 
         # Collect and sort all busy blocks from existing events
-        busy = []
-        for event in existing_events:
-            start = self._to_datetime(event.get("start"))
-            end = self._to_datetime(event.get("end"))
-            if not start or not end or end <= start:
-                continue
-            if start.date() == date:
-                busy.append((start, end))
-        busy.sort(key=lambda x: x[0])
+        busy = sorted(
+            [
+                (e["start"], e["end"])
+                for e in existing_events
+                if e["start"].date() == date
+            ],
+            key=lambda x: x[0]
+        )
 
         # Merge overlapping busy blocks
         busy = self._merge(busy)
 
         # Walk through the day and collect free windows
         free_slots = []
-        cursor = max(day_start, proposed_start)
+        cursor = day_start
 
         for busy_start, busy_end in busy:
             if cursor + duration <= busy_start:
@@ -104,13 +96,3 @@ class SlotFinder:
             else:
                 merged.append((start, end))
         return merged
-
-    def _to_datetime(self, value):
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                return None
-        return None
