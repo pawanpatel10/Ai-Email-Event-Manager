@@ -7,27 +7,6 @@ function Landing() {
   return (
     <div className="landing-container">
 
-      {/* Navbar */}
-      <nav className="navbar">
-        <div className="logo">Smart Scheduler</div>
-
-        <div className="nav-actions">
-          <button
-            className="login-btn"
-            onClick={() => navigate("/login")}
-          >
-            Login
-          </button>
-
-          {/* <button
-            className="signup-btn"
-            onClick={() => navigate("/signup")}
-          >
-            Signup
-          </button> */}
-        </div>
-      </nav>
-
       {/* Hero Section */}
       <div className="hero">
 
