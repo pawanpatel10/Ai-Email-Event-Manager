@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import Navbar from "../components/Navbar";
 import {
   getEvents,
   getPendingEvents,
@@ -49,18 +50,50 @@ export default function Dashboard() {
       setLoading(true);
       setError("");
 
-      const [allEventsRes, pendingRes] = await Promise.all([
+      const [allEventsResult, pendingResult, schedulerResult] =
+        await Promise.allSettled([
         getEvents(),
         getPendingEvents(),
+        getSchedulerStatus(),
       ]);
 
-      const schedulerRes = await getSchedulerStatus();
+      const toErrorMessage = (reason) => {
+        if (!reason) return "Unknown error";
+        if (typeof reason === "string") return reason;
+        if (reason?.message) return reason.message;
+        return "Unknown error";
+      };
 
-      setEvents(allEventsRes.events || []);
-      setPendingEvents(pendingRes.events || []);
-      setSchedulerStatus(schedulerRes || null);
+      if (allEventsResult.status === "fulfilled") {
+        setEvents(allEventsResult.value?.events || []);
+      }
+
+      if (pendingResult.status === "fulfilled") {
+        setPendingEvents(pendingResult.value?.events || []);
+      }
+
+      if (schedulerResult.status === "fulfilled") {
+        setSchedulerStatus(schedulerResult.value || null);
+      }
+
+      const failures = [
+        allEventsResult.status === "rejected"
+          ? `events: ${toErrorMessage(allEventsResult.reason)}`
+          : null,
+        pendingResult.status === "rejected"
+          ? `pending events: ${toErrorMessage(pendingResult.reason)}`
+          : null,
+        schedulerResult.status === "rejected"
+          ? `scheduler status: ${toErrorMessage(schedulerResult.reason)}`
+          : null,
+      ].filter(Boolean);
+
+      if (failures.length > 0) {
+        setError(`Some dashboard data failed to load (${failures.join("; ")})`);
+      }
+
     } catch (err) {
-      setError("Failed to load events");
+      setError(err?.message || "Failed to load events");
       console.error(err);
     } finally {
       setLoading(false);
@@ -336,7 +369,9 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="dashboard-container">
+    <>
+      <Navbar />
+      <div className="dashboard-container">
       <div className="dashboard-header">
         <h1>Event Dashboard</h1>
         <p>Manage your scheduled events and pending confirmations</p>
@@ -370,12 +405,6 @@ export default function Dashboard() {
               processed {schedulerStatus.status?.lastResult?.processedMessages || 0}, created {schedulerStatus.status?.lastResult?.createdEvents || 0}, scheduled {schedulerStatus.status?.lastResult?.scheduledEvents || 0}
             </span>
           </div>
-          {schedulerStatus.status?.lastError && (
-            <div className="scheduler-status-row wrap error">
-              <span className="scheduler-label">Last Error:</span>
-              <span className="scheduler-value">{schedulerStatus.status.lastError}</span>
-            </div>
-          )}
         </div>
       )}
 
@@ -442,6 +471,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

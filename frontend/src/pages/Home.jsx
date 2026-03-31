@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import Navbar from "../components/Navbar";
 import {
   getGoogleClientConfig,
   getGoogleTokenStatus,
@@ -87,7 +88,9 @@ function Home() {
   };
 
   return (
-    <div className="home-container">
+    <>
+      <Navbar />
+      <div className="home-container">
       <header className="home-header">
         <div className="header-content">
           <h1>Welcome to Email Event Manager</h1>
@@ -178,6 +181,7 @@ function Home() {
         </div>
       </section>
     </div>
+    </>
   );
 }
 

@@ -17,7 +17,13 @@ const protect = asyncHandler(async (req, res, next) => {
     throw new Error("Not authorized, no token");
   }
 
-  const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+  } catch (_error) {
+    res.status(401);
+    throw new Error("Not authorized, token expired or invalid");
+  }
 
   req.user = await User.findById(decoded.id).select("-password");
 

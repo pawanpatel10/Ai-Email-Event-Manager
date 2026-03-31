@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import Navbar from "../components/Navbar";
 import {
   getEmailPreferences,
   updateEmailPreferences,
@@ -140,7 +141,9 @@ export default function EmailConfig() {
   }
 
   return (
-    <div className="email-config-container">
+    <>
+      <Navbar />
+      <div className="email-config-container">
       <div className="email-config-header">
         <h1>Email Configuration</h1>
         <p>Control which senders are trusted and how detected events are handled.</p>
@@ -327,6 +330,7 @@ export default function EmailConfig() {
           Save Preferences
         </button>
       </section>
-    </div>
+      </div>
+    </>
   );
 }

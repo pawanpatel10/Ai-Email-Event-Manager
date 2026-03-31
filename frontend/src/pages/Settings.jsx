@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import Navbar from "../components/Navbar";
 import {
   getEmailPreferences,
   updateEmailPreferences,
@@ -105,7 +106,9 @@ export default function Settings() {
   }
 
   return (
-    <div className="settings-page">
+    <>
+      <Navbar />
+      <div className="settings-page">
       <div className="settings-header">
         <h1>Settings</h1>
         <p>Control scheduling behavior, privacy, and calendar sync.</p>
@@ -207,6 +210,7 @@ export default function Settings() {
           {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
