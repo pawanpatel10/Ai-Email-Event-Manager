@@ -134,6 +134,23 @@
   padding: 2rem;
 }
 
+.past-events-section {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e8e8e8;
+}
+
+.past-events-header h2 {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  color: #5f6368;
+  font-weight: 700;
+}
+
+.past-empty-state {
+  padding: 1.5rem 1rem;
+}
+
 .empty-state {
   text-align: center;
   padding: 3rem 2rem;

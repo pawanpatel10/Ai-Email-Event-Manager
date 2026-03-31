@@ -139,35 +139,3 @@ class NLPPipeline:
         confidence = min(1.0, max(0.0, confidence))
         
         return round(confidence, 2)
-
-
-# Legacy function for backward compatibility
-def process_email(text):
-    """Process email text and extract event information"""
-    if not is_event_email(text):
-        return {"event": False}
-
-    event_context = extract_description(text).strip()
-
-    time_details = extract_time_details(text)
-    date = time_details[0] if len(time_details) > 0 else None
-    time = time_details[1] if len(time_details) > 1 else None
-    duration = time_details[2] if len(time_details) > 2 else None
-    end_time = time_details[3] if len(time_details) > 3 else None
-
-    location = extract_location(text)
-
-    confidence = calculate_confidence(date, time, location) if 'calculate_confidence' in dir() else 0.5
-
-    result = {
-        "event": True,
-        "date": str(date),
-        "time": str(time),
-        "duration": duration,
-        "end_time": str(end_time) if end_time else None,
-        "location": location,
-        "event_context": event_context,
-        "confidence": confidence
-    }
-
-    return result

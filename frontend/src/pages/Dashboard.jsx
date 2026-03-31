@@ -193,6 +193,126 @@ export default function Dashboard() {
     return date.toLocaleString();
   };
 
+  const getEventEndTime = (event) => {
+    const fallbackStart = new Date(event.dateTime);
+    if (event.endDateTime) {
+      const parsedEnd = new Date(event.endDateTime);
+      if (!Number.isNaN(parsedEnd.getTime())) {
+        return parsedEnd;
+      }
+    }
+
+    if (!Number.isNaN(fallbackStart.getTime()) && Number(event.duration) > 0) {
+      return new Date(fallbackStart.getTime() + Number(event.duration) * 60000);
+    }
+
+    return fallbackStart;
+  };
+
+  const renderEventsGrid = (items) => (
+    <div className="events-grid">
+      {items.map((event) => (
+        <div key={event._id} className="event-card">
+          <div className="event-header">
+            <h3>{event.title}</h3>
+            <span className={`status-badge ${event.status}`}>{event.status}</span>
+          </div>
+
+          <div className="event-body">
+            <div className="event-detail">
+              <span className="label">Date & Time:</span>
+              <span className="value">
+                {formatDate(event.dateTime)} at {" "}
+                {formatTime(event.dateTime)}
+              </span>
+            </div>
+
+            {event.location && (
+              <div className="event-detail">
+                <span className="label">Location:</span>
+                <span className="value">{event.location}</span>
+              </div>
+            )}
+
+            {event.duration && (
+              <div className="event-detail">
+                <span className="label">Duration:</span>
+                <span className="value">{event.duration} minutes</span>
+              </div>
+            )}
+
+            {event.description && (
+              <div className="event-detail">
+                <span className="label">Description:</span>
+                <span className="value">{event.description}</span>
+              </div>
+            )}
+
+            {event.fromEmail && (
+              <div className="event-detail">
+                <span className="label">From:</span>
+                <span className="value">{event.fromEmail}</span>
+              </div>
+            )}
+
+            {event.confidence && (
+              <div className="event-detail">
+                <span className="label">Confidence:</span>
+                <span className={`confidence ${getConfidenceColor(event.confidence)}`}>
+                  {Math.round(event.confidence * 100)}%
+                </span>
+              </div>
+            )}
+
+            <div className="event-detail">
+              <span className="label">Calendar:</span>
+              <span className="value">
+                {event.googleCalendarEventId ? "Synced" : "Not synced"}
+              </span>
+            </div>
+          </div>
+
+          <div className="event-actions">
+            {event.status === "pending" && (
+              <>
+                <button
+                  onClick={() => handleConfirmEvent(event._id)}
+                  className="btn btn-confirm"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => handleRejectEvent(event._id)}
+                  className="btn btn-reject"
+                >
+                  Reject
+                </button>
+              </>
+            )}
+            {event.status !== "pending" && (
+              <>
+                {!event.googleCalendarEventId && event.status !== "cancelled" && (
+                  <button
+                    onClick={() => handleSyncEventToCalendar(event._id)}
+                    className="btn btn-sync"
+                  >
+                    Sync to Calendar
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDeleteEvent(event._id)}
+                  className="btn btn-delete"
+                >
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   if (loading) {
     return <div className="dashboard-container">Loading your events...</div>;
   }
@@ -203,6 +323,17 @@ export default function Dashboard() {
       : activeTab === "all"
       ? events
       : events.filter((e) => e.status === activeTab);
+
+  const now = new Date();
+  const futureEvents = displayEvents.filter((event) => {
+    const endTime = getEventEndTime(event);
+    return !Number.isNaN(endTime.getTime()) && endTime >= now;
+  });
+
+  const pastEvents = displayEvents.filter((event) => {
+    const endTime = getEventEndTime(event);
+    return !Number.isNaN(endTime.getTime()) && endTime < now;
+  });
 
   return (
     <div className="dashboard-container">
@@ -284,123 +415,31 @@ export default function Dashboard() {
 
         {/* Events List */}
         <div className="events-container">
-          {displayEvents.length === 0 ? (
+          {futureEvents.length === 0 ? (
             <div className="empty-state">
               <p>
                 {activeTab === "pending"
                   ? "No pending events. You're all caught up!"
-                  : "No events found in this category."}
+                  : "No upcoming events found in this category."}
               </p>
             </div>
           ) : (
-            <div className="events-grid">
-              {displayEvents.map((event) => (
-                <div key={event._id} className="event-card">
-                  <div className="event-header">
-                    <h3>{event.title}</h3>
-                    <span className={`status-badge ${event.status}`}>
-                      {event.status}
-                    </span>
-                  </div>
-
-                  <div className="event-body">
-                    <div className="event-detail">
-                      <span className="label">Date & Time:</span>
-                      <span className="value">
-                        {formatDate(event.dateTime)} at{" "}
-                        {formatTime(event.dateTime)}
-                      </span>
-                    </div>
-
-                    {event.location && (
-                      <div className="event-detail">
-                        <span className="label">Location:</span>
-                        <span className="value">{event.location}</span>
-                      </div>
-                    )}
-
-                    {event.duration && (
-                      <div className="event-detail">
-                        <span className="label">Duration:</span>
-                        <span className="value">{event.duration} minutes</span>
-                      </div>
-                    )}
-
-                    {event.description && (
-                      <div className="event-detail">
-                        <span className="label">Description:</span>
-                        <span className="value">{event.description}</span>
-                      </div>
-                    )}
-
-                    {event.fromEmail && (
-                      <div className="event-detail">
-                        <span className="label">From:</span>
-                        <span className="value">{event.fromEmail}</span>
-                      </div>
-                    )}
-
-                    {event.confidence && (
-                      <div className="event-detail">
-                        <span className="label">Confidence:</span>
-                        <span
-                          className={`confidence ${getConfidenceColor(
-                            event.confidence
-                          )}`}
-                        >
-                          {Math.round(event.confidence * 100)}%
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="event-detail">
-                      <span className="label">Calendar:</span>
-                      <span className="value">
-                        {event.googleCalendarEventId ? "Synced" : "Not synced"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="event-actions">
-                    {event.status === "pending" && (
-                      <>
-                        <button
-                          onClick={() => handleConfirmEvent(event._id)}
-                          className="btn btn-confirm"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => handleRejectEvent(event._id)}
-                          className="btn btn-reject"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
-                    {event.status !== "pending" && (
-                      <>
-                        {!event.googleCalendarEventId && event.status !== "cancelled" && (
-                          <button
-                            onClick={() => handleSyncEventToCalendar(event._id)}
-                            className="btn btn-sync"
-                          >
-                            Sync to Calendar
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteEvent(event._id)}
-                          className="btn btn-delete"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            renderEventsGrid(futureEvents)
           )}
+
+          <div className="past-events-section">
+            <div className="past-events-header">
+              <h2>Past Events ({pastEvents.length})</h2>
+            </div>
+
+            {pastEvents.length === 0 ? (
+              <div className="empty-state past-empty-state">
+                <p>No past events in this category.</p>
+              </div>
+            ) : (
+              renderEventsGrid(pastEvents)
+            )}
+          </div>
         </div>
       </div>
     </div>

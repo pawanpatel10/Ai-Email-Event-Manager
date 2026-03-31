@@ -10,13 +10,11 @@ import EmailConfig from "./pages/EmailConfig";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import ProtectedRoute from "./components/ProtectedRoute";
-import Navbar from "./components/Navbar";
 import SessionExpiredModal from "./components/SessionExpiredModal";
 
 function App() {
   return (
     <BrowserRouter>
-      <Navbar />
       <SessionExpiredModal />
       <Routes>
         <Route path="/" element={<Landing />} />
