@@ -15,6 +15,8 @@ This is the low-level agentic entry point that orchestrates:
 
 from datetime import datetime
 from decision_maker import DecisionMaker
+from priority_scheduler import PriorityScheduler
+import sys
 import json
 
 
@@ -53,11 +55,18 @@ class AgentOrchestrator:
         if not nlp_output or not isinstance(nlp_output, dict):
             return self._error_response("Invalid NLP output")
 
+        allowed_senders = user_data.get('allowed_senders', []) if user_data else []
+        attendance_history = user_data.get('attendance_history', []) if user_data else []
+        
+        priority_scheduler = PriorityScheduler(allowed_senders=allowed_senders)
+        current_priority = priority_scheduler.compute_priority(nlp_output, attendance_history=attendance_history)
+
         # Make the autonomous decision
         decision = self.decision_maker.decide(
             raw_event=nlp_output,
             existing_events=existing_calendar_events,
-            user_data=user_data
+            user_data=user_data,
+            current_priority=current_priority
         )
 
         return decision
@@ -162,3 +171,21 @@ def process_event(nlp_event_dict, calendar_events_list, user_prefs=None):
         calendar_events_list,
         user_prefs
     )
+
+if __name__ == "__main__":
+    try:
+        input_data = sys.stdin.read()
+        if input_data:
+            parsed = json.loads(input_data)
+            nlp_event = parsed.get("nlp_event", {})
+            existing_events = parsed.get("existing_events", [])
+            user_prefs = parsed.get("user_prefs", {})
+            
+            result = process_event(nlp_event, existing_events, user_prefs)
+            print(json.dumps(result))
+    except Exception as e:
+        print(json.dumps({
+            "action": "ERROR",
+            "reason": str(e)
+        }))
+

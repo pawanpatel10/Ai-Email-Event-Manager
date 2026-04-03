@@ -1,216 +1,200 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import Navbar from "../components/Navbar";
-import {
-  getEmailPreferences,
-  updateEmailPreferences,
-  getAllowedEmailSenders,
-  updateWhitelistEnforcement,
-} from "../services/emailService";
-import { getUserInfo } from "../services/authService";
-import "./Settings.css";
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import './ProfileSettings.css';
 
-export default function Settings() {
-  const { isAuthenticated, loading: authLoading } = useAuth();
+function Settings() {
   const navigate = useNavigate();
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
-
-  const [googleConnected, setGoogleConnected] = useState(false);
-  const [allowedSenderCount, setAllowedSenderCount] = useState(0);
-
-  const [preferences, setPreferences] = useState({
-    schedulerEnabled: true,
-    autoSchedule: false,
-    requireConfirmation: true,
-    autoCalendarSync: true,
-    enforceWhitelist: true,
+  const { user } = useAuth();
+  
+  const [profileData, setProfileData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    dob: '',
+    phone: '',
+    address: '',
+    bio: ''
   });
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!isAuthenticated) {
-      navigate("/login");
-      return;
+    if (user) {
+      const parts = (user.name || '').split(' ');
+      setProfileData(prev => ({
+        ...prev,
+        firstName: parts[0] || '',
+        lastName: parts.slice(1).join(' ') || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        address: user.address || '',
+        bio: user.bio || '',
+        dob: user.dob ? user.dob.split('T')[0] : ''
+      }));
     }
-    fetchSettings();
-  }, [authLoading, isAuthenticated, navigate]);
+  }, [user]);
 
-  const fetchSettings = async () => {
+  const [isEditing, setIsEditing] = useState(false);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setProfileData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
     try {
-      setLoading(true);
-      setError("");
-
-      const [prefsRes, whitelistRes, meRes] = await Promise.all([
-        getEmailPreferences(),
-        getAllowedEmailSenders(),
-        getUserInfo(),
-      ]);
-
-      const prefs = prefsRes?.preferences || {};
-      const enforceWhitelist = whitelistRes?.enforceWhitelist ?? true;
-      const activeAllowedSenders = (whitelistRes?.allowedSenders || []).filter(
-        (sender) => sender.isActive
-      );
-
-      setPreferences({
-        schedulerEnabled: prefs.schedulerEnabled ?? true,
-        autoSchedule: !!prefs.autoSchedule,
-        requireConfirmation: prefs.requireConfirmation ?? true,
-        autoCalendarSync: prefs.autoCalendarSync ?? true,
-        enforceWhitelist,
-      });
-
-      setAllowedSenderCount(activeAllowedSenders.length);
-      setGoogleConnected(!!meRes?.user?.googleAccessToken);
+      // API call to update user details would go here if implemented on backend
+      alert('Profile updated successfully!');
+      setIsEditing(false);
     } catch (err) {
-      setError(err.message || "Failed to load settings");
-    } finally {
-      setLoading(false);
+      alert('Failed to update profile');
     }
   };
-
-  const handleToggle = (key) => {
-    setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const handleSaveSettings = async () => {
-    try {
-      setSaving(true);
-      setError("");
-
-      await updateEmailPreferences({
-        schedulerEnabled: preferences.schedulerEnabled,
-        autoSchedule: preferences.autoSchedule,
-        requireConfirmation: preferences.requireConfirmation,
-        autoCalendarSync: preferences.autoCalendarSync,
-      });
-
-      await updateWhitelistEnforcement(preferences.enforceWhitelist);
-
-      setSuccessMessage("Settings saved successfully.");
-      setTimeout(() => setSuccessMessage(""), 2500);
-    } catch (err) {
-      setError(err.message || "Failed to save settings");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="settings-page">Loading settings...</div>;
-  }
 
   return (
-    <>
-      <Navbar />
-      <div className="settings-page">
-      <div className="settings-header">
-        <h1>Settings</h1>
-        <p>Control scheduling behavior, privacy, and calendar sync.</p>
-      </div>
-
-      {error && <div className="alert alert-error">{error}</div>}
-      {successMessage && <div className="alert alert-success">{successMessage}</div>}
-
-      <div className="settings-grid">
-        <section className="settings-card">
-          <h2>Automation</h2>
-
-          <label className="setting-row">
-            <span className="setting-title">Automatic Email Scheduling</span>
-            <input
-              type="checkbox"
-              checked={preferences.schedulerEnabled}
-              onChange={() => handleToggle("schedulerEnabled")}
-            />
-          </label>
-          <p className="setting-desc">
-            When disabled, automatic email scheduling stops immediately and resumes only after re-enabling.
-          </p>
-
-          <label className="setting-row">
-            <span className="setting-title">Auto Schedule Events</span>
-            <input
-              type="checkbox"
-              checked={preferences.autoSchedule}
-              onChange={() => handleToggle("autoSchedule")}
-            />
-          </label>
-          <p className="setting-desc">
-            Automatically schedule detected events without waiting for approval.
-          </p>
-
-          <label className="setting-row">
-            <span className="setting-title">Require Confirmation</span>
-            <input
-              type="checkbox"
-              checked={preferences.requireConfirmation}
-              onChange={() => handleToggle("requireConfirmation")}
-            />
-          </label>
-          <p className="setting-desc">
-            Keep events in pending state until you manually confirm.
-          </p>
-
-          <label className="setting-row">
-            <span className="setting-title">Auto Calendar Sync</span>
-            <input
-              type="checkbox"
-              checked={preferences.autoCalendarSync}
-              onChange={() => handleToggle("autoCalendarSync")}
-            />
-          </label>
-          <p className="setting-desc">
-            Push confirmed events directly to Google Calendar.
-          </p>
-        </section>
-
-        <section className="settings-card">
-          <h2>Privacy</h2>
-
-          <label className="setting-row">
-            <span className="setting-title">Enforce Sender Whitelist</span>
-            <input
-              type="checkbox"
-              checked={preferences.enforceWhitelist}
-              onChange={() => handleToggle("enforceWhitelist")}
-            />
-          </label>
-          <p className="setting-desc">
-            Only process emails from approved sender IDs.
-          </p>
-
-          <div className="status-box">
-            <div>
-              <strong>Active Allowed Senders:</strong> {allowedSenderCount}
-            </div>
-            <button className="btn btn-secondary" onClick={() => navigate("/email-config")}>Manage Allowed Senders</button>
-          </div>
-        </section>
-
-        <section className="settings-card">
-          <h2>Google Connection</h2>
-          <div className={`connection-pill ${googleConnected ? "connected" : "disconnected"}`}>
-            {googleConnected ? "Google Calendar Connected" : "Google Calendar Not Connected"}
-          </div>
-          <p className="setting-desc">
-            Connect or refresh Google permissions from the Home page card.
-          </p>
-          <button className="btn btn-primary" onClick={() => navigate("/home")}>Go To Home</button>
-        </section>
-      </div>
-
-      <div className="settings-actions">
-        <button className="btn btn-primary btn-lg" onClick={handleSaveSettings} disabled={saving}>
-          {saving ? "Saving..." : "Save Settings"}
+    <div className="profile-settings-page">
+      <nav className="settings-nav">
+        <button className="back-btn" onClick={() => navigate('/home')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          Back to Dashboard
         </button>
+        <h2>Profile Settings</h2>
+      </nav>
+
+      <div className="settings-container">
+        <div className="settings-sidebar">
+          <div className="profile-summary">
+            <div className="avatar-large">
+              {(profileData.firstName ? profileData.firstName.charAt(0) : 'U').toUpperCase()}
+              {(profileData.lastName ? profileData.lastName.charAt(0) : '').toUpperCase()}
+            </div>
+            <h3>{profileData.firstName} {profileData.lastName}</h3>
+            <p>{profileData.email}</p>
+          </div>
+          <ul className="settings-menu">
+            <li className="active">Personal Information</li>
+            <li>Security & Password</li>
+            <li>Notification Preferences</li>
+          </ul>
+        </div>
+
+        <div className="settings-content">
+          <div className="content-header">
+            <div>
+              <h3>Personal Information</h3>
+              <p>Update your personal details and contact information.</p>
+            </div>
+            {!isEditing && (
+              <button className="edit-btn" onClick={() => setIsEditing(true)}>
+                Edit Profile
+              </button>
+            )}
+          </div>
+
+          <form className="settings-form" onSubmit={handleSave}>
+            <div className="form-row">
+              <div className="form-group">
+                <label>First Name</label>
+                <input 
+                  type="text" 
+                  name="firstName" 
+                  value={profileData.firstName} 
+                  onChange={handleChange}
+                  disabled={!isEditing}
+                  required 
+                />
+              </div>
+              <div className="form-group">
+                <label>Last Name</label>
+                <input 
+                  type="text" 
+                  name="lastName" 
+                  value={profileData.lastName} 
+                  onChange={handleChange}
+                  disabled={!isEditing}
+                  required 
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Email Address</label>
+              <input 
+                type="email" 
+                name="email" 
+                value={profileData.email} 
+                onChange={handleChange}
+                disabled={!isEditing}
+                required 
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Date of Birth</label>
+                <input 
+                  type="date" 
+                  name="dob" 
+                  value={profileData.dob} 
+                  onChange={handleChange}
+                  disabled={!isEditing}
+                />
+              </div>
+              <div className="form-group">
+                <label>Phone Number</label>
+                <input 
+                  type="tel" 
+                  name="phone" 
+                  value={profileData.phone} 
+                  onChange={handleChange}
+                  disabled={!isEditing}
+                  placeholder="+1 (555) 000-0000"
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Address</label>
+              <input 
+                type="text" 
+                name="address" 
+                value={profileData.address} 
+                onChange={handleChange}
+                disabled={!isEditing}
+                placeholder="City, Country"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Bio</label>
+              <textarea 
+                name="bio" 
+                value={profileData.bio} 
+                onChange={handleChange}
+                disabled={!isEditing}
+                placeholder="Tell us a little about yourself"
+                rows="4"
+              ></textarea>
+            </div>
+
+            {isEditing && (
+              <div className="form-actions">
+                <button type="button" className="cancel-btn" onClick={() => setIsEditing(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="save-btn">
+                  Save Changes
+                </button>
+              </div>
+            )}
+          </form>
+        </div>
       </div>
-      </div>
-    </>
+    </div>
   );
 }
+
+export default Settings;

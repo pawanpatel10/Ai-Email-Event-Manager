@@ -2,7 +2,6 @@ import * as chrono from "chrono-node";
 import Event from "../models/Event.js";
 import EmailProcessing from "../models/EmailProcessing.js";
 import { getCalendarClient, getGmailClient } from "./googleClientService.js";
-import { makeAgentDecision, formatExistingEventsForAgent } from "./agentDecisionService.js";
 
 const EVENT_KEYWORDS = [
   "meeting",
@@ -209,18 +208,6 @@ export const processUserConnectedEmails = async (user) => {
     );
   }
 
-  const existingEventsRaw = await Event.find({ userId: user._id, status: { $in: ["confirmed", "scheduled"] } });
-  const existingEvents = formatExistingEventsForAgent(existingEventsRaw);
-  
-  const userHistoryRaw = await Event.find({ userId: user._id, attendanceStatus: { $in: ["attended", "not_attended"] } });
-  const attendance_history = userHistoryRaw.map(e => ({ title: e.title, attendanceStatus: e.attendanceStatus }));
-
-  const userPrefs = {
-    ...(user.emailPreferences || {}),
-    allowed_senders: allowedSenders,
-    attendance_history: attendance_history
-  };
-
   const gmail = getGmailClient({
     accessToken: user.googleAccessToken,
     refreshToken: user.googleRefreshToken,
@@ -301,67 +288,34 @@ export const processUserConnectedEmails = async (user) => {
       continue;
     }
 
-    const nlpEvent = {
-      date: candidate.dateTime.toISOString().split('T')[0],
-      time: candidate.dateTime.toISOString().split('T')[1].substring(0,8),
-      duration: 60,
-      location: "",
-      event_context: candidate.title,
-      confidence: candidate.confidence,
-      emailId: message.id,
-      fromEmail: from,
-    };
-
-    let decision;
-    try {
-      decision = await makeAgentDecision(nlpEvent, existingEvents, userPrefs);
-    } catch (e) {
-      console.error("[AgentDecision Error]", e);
-      decision = { action: "ERROR", event: nlpEvent };
-    }
-
-    const requiresUserConfirmation = ['SUGGEST_SLOTS', 'NEEDS_REVIEW'].includes(decision.action);
+    const shouldAutoSchedule = user.emailPreferences?.autoSchedule ?? false;
+    const requiresUserConfirmation = shouldAutoSchedule
+      ? false
+      : user.emailPreferences?.requireConfirmation ?? true;
     const shouldAutoSync = user.emailPreferences?.autoCalendarSync ?? false;
-    
-    if (decision.action === 'PREEMPT_EXISTING' && decision.conflicts && decision.conflicts.length > 0) {
-      for (const conflict of decision.conflicts) {
-         if (conflict.existing_id) {
-            await Event.findByIdAndUpdate(conflict.existing_id, {
-               status: 'pending',
-               isPreempted: true,
-               requiresUserConfirmation: true,
-            });
-         }
-      }
-    }
 
     const event = await Event.create({
       userId: user._id,
-      title: decision.event?.title || candidate.title,
+      title: candidate.title,
       description: candidate.description,
-      dateTime: decision.event?.start ? new Date(decision.event.start) : candidate.dateTime,
+      dateTime: candidate.dateTime,
       duration: 60,
       fromEmail: from,
       emailSubject: subject,
       emailId: message.id,
-      confidence: decision.event?.confidence || candidate.confidence,
-      priorityScore: decision.event?.priority_score || 0,
+      confidence: candidate.confidence,
       requiresUserConfirmation,
-      userConfirmed: !requiresUserConfirmation && decision.action !== 'ERROR' && decision.action !== 'IGNORE',
-      status: (!requiresUserConfirmation && decision.action !== 'ERROR' && decision.action !== 'IGNORE') ? "confirmed" : "pending",
+      userConfirmed: !requiresUserConfirmation,
+      status: requiresUserConfirmation ? "pending" : "confirmed",
       extractedData: {
         originalText: `${subject}\n${body}`.slice(0, 3000),
         entities: candidate.entities,
-        decisionAction: decision.action,
-        decisionReason: decision.reason,
-        suggestedSlots: decision.suggested_slots || [],
-        hasWarning: decision.conflicts && decision.conflicts.some(c => c.type === 'BUFFER_VIOLATION'),
       },
     });
 
     createdEvents += 1;
 
-    if (!requiresUserConfirmation && shouldAutoSync && decision.action !== 'ERROR' && decision.action !== 'IGNORE') {
+    if (!requiresUserConfirmation && shouldAutoSync) {
       try {
         const calendarEventId = await createCalendarEvent({ user, event });
         event.googleCalendarEventId = calendarEventId;
@@ -369,6 +323,7 @@ export const processUserConnectedEmails = async (user) => {
         await event.save();
         scheduledEvents += 1;
       } catch (error) {
+        // Keep event available even if calendar sync fails.
         event.status = "confirmed";
         event.extractedData = {
           ...(event.extractedData || {}),

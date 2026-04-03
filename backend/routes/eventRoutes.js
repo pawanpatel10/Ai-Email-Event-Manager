@@ -9,6 +9,7 @@ import {
   getPendingEvents,
   processEmailsNow,
   getSchedulerStatus,
+  updateAttendance,
 } from "../controllers/eventController.js";
 import protect from "../middlewares/authMiddleware.js";
 
@@ -25,6 +26,7 @@ router.get("/pending/list", getPendingEvents);
 router.get("/:id", getEventById);
 router.patch("/:id/confirm", confirmEvent);
 router.patch("/:id/reject", rejectEvent);
+router.patch("/:id/attendance", updateAttendance);
 router.post("/:id/sync-calendar", syncEventToCalendar);
 router.delete("/:id", deleteEvent);
 

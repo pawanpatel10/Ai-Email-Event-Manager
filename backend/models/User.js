@@ -44,14 +44,14 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
-    googleAccessToken: {
+    googleRefreshToken: {
       type: String,
       default: null,
     },
 
-    googleRefreshToken: {
-      type: String,
-      default: null,
+    isCalendarLinked: {
+      type: Boolean,
+      default: false,
     },
 
     connectedEmails: [

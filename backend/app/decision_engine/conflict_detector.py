@@ -63,6 +63,8 @@ class ConflictDetector:
                 "type": "OVERLAP",
                 "severity": "HIGH",
                 "with": existing["title"],
+                "existing_id": existing.get("id"),
+                "existing_priority": existing.get("priorityScore", 0),
                 "existing_start": e_start.strftime("%H:%M"),
                 "existing_end": e_end.strftime("%H:%M"),
                 "overlap_minutes": overlap_minutes,

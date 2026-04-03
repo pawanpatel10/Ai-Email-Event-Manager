@@ -51,7 +51,7 @@ class DecisionMaker:
                 self.AUTO_SCHEDULE_THRESHOLD
             )
 
-    def decide(self, raw_event, existing_events, user_data=None):
+    def decide(self, raw_event, existing_events, user_data=None, current_priority=0):
         """
         Main agentic decision logic.
 
@@ -59,8 +59,10 @@ class DecisionMaker:
             raw_event: dict from NLP module with keys:
                       date, time, end_time, duration, event_context,
                       location, confidence, emailId, fromEmail
-            existing_events: list of calendar events (start, end, title)
+            existing_events: list of calendar events (start, end, title, id, priorityScore)
             user_data: dict with user info for preference learning
+            current_priority: int computed priority of the current event
+
 
         Returns:
             decision dict with action, reason, event details, conflicts, slots
@@ -76,7 +78,8 @@ class DecisionMaker:
                 conflicts=[],
                 slots=[],
                 raw=raw_event,
-                agent_reasoning="Missing or invalid date/time data"
+                agent_reasoning="Missing or invalid date/time data",
+                current_priority=current_priority
             )
 
         # ── Step 2: Check confidence level ───────────────────────────────
@@ -97,7 +100,8 @@ class DecisionMaker:
                 agent_reasoning=(
                     "Low confidence event detected. Candidate for LLM-based "
                     "reasoning to determine if this warrants user attention."
-                ) if confidence >= self.IGNORE_THRESHOLD else None
+                ) if confidence >= self.IGNORE_THRESHOLD else None,
+                current_priority=current_priority
             )
 
         # ── Step 3: Run conflict detection ────────────────────────────────
@@ -116,7 +120,8 @@ class DecisionMaker:
                     f"Calendar window is clear for {proposed['title']} at "
                     f"{proposed['start'].strftime('%Y-%m-%d %H:%M')}. "
                     f"Confidence: {confidence:.0%}. Auto-scheduling triggered."
-                )
+                ),
+                current_priority=current_priority
             )
 
         # ── Step 4b: Only soft conflicts (buffer) → still auto schedule
@@ -139,10 +144,33 @@ class DecisionMaker:
                     f"Soft conflict (buffer violation) detected but no hard overlap. "
                     f"User configured buffer: {self.detector.buffer_minutes} min. "
                     f"Actual gap: {soft[0]['gap_minutes']} min. Proceeding with schedule."
-                )
+                ),
+                current_priority=current_priority
             )
 
-        # ── Step 4c: Hard conflict → find alternatives ────────────────────
+        # ── Step 4c: Hard conflict priority check ─────────────────────────
+        max_existing_priority = max([c.get("existing_priority", 0) for c in hard] + [0])
+        preemptible_ids = [c.get("existing_id") for c in hard if c.get("existing_id") is not None]
+
+        if current_priority > max_existing_priority and max_existing_priority > 0:
+            return self._outcome(
+                action="PREEMPT_EXISTING",
+                proposed=proposed,
+                reason=(
+                    f"Event has higher priority ({current_priority}) than conflicting events "
+                    f"(max priority {max_existing_priority}). Preempting existing events."
+                ),
+                conflicts=conflict_result["conflicts"],
+                slots=[],
+                raw=raw_event,
+                agent_reasoning=(
+                    f"Direct time conflict detected, but Priority Scheduling determined "
+                    f"the new event takes precedence. Existing events {preemptible_ids} will be bumped."
+                ),
+                current_priority=current_priority
+            )
+
+        # ── Step 4d: Hard conflict (lower/equal priority) → find alternatives 
         free_slots = self.finder.find(proposed, existing_events)
 
         if free_slots:
@@ -162,7 +190,8 @@ class DecisionMaker:
                     f"alternative slots on the same day within working hours "
                     f"({self.finder.working_start}–{self.finder.working_end}). "
                     f"Presenting {len(free_slots)} options to user."
-                )
+                ),
+                current_priority=current_priority
             )
 
         # ── Step 4d: Conflict + no free slots → escalate to user ──────────
@@ -180,7 +209,8 @@ class DecisionMaker:
             agent_reasoning=(
                 f"Unable to autonomously resolve: Hard conflict detected "
                 f"and no free slots found on the requested day. Escalating to user."
-            )
+            ),
+            current_priority=current_priority
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -217,7 +247,7 @@ class DecisionMaker:
             return None
 
     def _outcome(self, action, proposed, reason, conflicts, slots, raw, 
-                 agent_reasoning=None):
+                 agent_reasoning=None, current_priority=0):
         """Build the final structured response with agentic metadata."""
         return {
             "action": action,
@@ -229,6 +259,7 @@ class DecisionMaker:
                 "end": proposed["end"].isoformat() if proposed else None,
                 "location": proposed["location"] if proposed else raw.get("location", ""),
                 "confidence": proposed.get("confidence", 0) if proposed else raw.get("confidence", 0),
+                "priority_score": current_priority,
             },
             "conflicts": conflicts,
             "suggested_slots": [

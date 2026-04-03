@@ -62,6 +62,22 @@ const eventSchema = new mongoose.Schema(
       default: 0,
     },
 
+    priorityScore: {
+      type: Number,
+      default: 0,
+    },
+
+    attendanceStatus: {
+      type: String,
+      enum: ["pending", "attended", "not_attended"],
+      default: "pending",
+    },
+
+    isPreempted: {
+      type: Boolean,
+      default: false,
+    },
+
     requiresUserConfirmation: {
       type: Boolean,
       default: true,

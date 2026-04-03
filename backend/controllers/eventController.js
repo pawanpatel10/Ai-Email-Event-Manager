@@ -81,10 +81,10 @@ const cancelConflictingEvents = async ({ user, selectedEventId, conflicts }) => 
   const now = new Date();
 
   for (const conflict of conflicts) {
-    if (conflict.googleCalendarEventId && user?.googleAccessToken) {
+    if (conflict.googleCalendarEventId && user?.googleRefreshToken) {
       try {
         const calendar = getCalendarClient({
-          accessToken: user.googleAccessToken,
+          accessToken: undefined,
           refreshToken: user.googleRefreshToken,
         });
 
@@ -266,7 +266,7 @@ export const confirmEvent = asyncHandler(async (req, res) => {
     }
   }
 
-  if (shouldAutoSync && user?.googleAccessToken) {
+  if (shouldAutoSync && user?.googleRefreshToken) {
     try {
       const calendarEventId = await createCalendarEvent({ user, event });
       event.googleCalendarEventId = calendarEventId;
@@ -282,7 +282,7 @@ export const confirmEvent = asyncHandler(async (req, res) => {
         error.message ||
         "Event confirmed but Google Calendar sync failed. Reconnect Google and try again.";
     }
-  } else if (shouldAutoSync && !user?.googleAccessToken) {
+  } else if (shouldAutoSync && !user?.googleRefreshToken) {
     calendarSyncWarning =
       "Event confirmed, but Google is not connected for calendar sync.";
   }
@@ -390,7 +390,7 @@ export const syncEventToCalendar = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(req.user.id);
-  if (!user?.googleAccessToken) {
+  if (!user?.googleRefreshToken) {
     return res.status(400).json({
       success: false,
       message:
@@ -493,5 +493,45 @@ export const getSchedulerStatus = asyncHandler(async (req, res) => {
     schedulerEnabled: user.emailPreferences?.schedulerEnabled ?? true,
     intervalMinutes: Number.isFinite(intervalMinutes) && intervalMinutes > 0 ? intervalMinutes : 5,
     status: user.schedulerStatus || {},
+  });
+});
+
+// @desc    Update event attendance status
+// @route   PATCH /api/events/:id/attendance
+// @access  Private
+export const updateAttendance = asyncHandler(async (req, res) => {
+  const { action } = req.body; // 'attended' or 'not_attended'
+  
+  if (!['attended', 'not_attended'].includes(action)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid action. Must be 'attended' or 'not_attended'",
+    });
+  }
+
+  let event = await Event.findById(req.params.id);
+
+  if (!event) {
+    return res.status(404).json({
+      success: false,
+      message: "Event not found",
+    });
+  }
+
+  // Check if user owns this event
+  if (event.userId.toString() !== req.user.id) {
+    return res.status(403).json({
+      success: false,
+      message: "Not authorized to update this event",
+    });
+  }
+
+  event.attendanceStatus = action;
+  await event.save();
+
+  res.status(200).json({
+    success: true,
+    message: `Event marked as ${action.replace('_', ' ')}`,
+    event,
   });
 });

@@ -5,8 +5,6 @@ import Signup from "./pages/Signup";
 import VerifyOtp from "./pages/VerifyOtp";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
-import Home from "./pages/Home";
-import EmailConfig from "./pages/EmailConfig";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -27,18 +25,11 @@ function App() {
             path="/home"
             element={
               <ProtectedRoute>
-                <Home />
+                <Dashboard />
               </ProtectedRoute>
             }
           />
-        <Route
-            path="/email-config"
-            element={
-              <ProtectedRoute>
-                <EmailConfig />
-              </ProtectedRoute>
-            }
-          />
+
         <Route
             path="/dashboard"
             element={

@@ -131,12 +131,14 @@ export async function batchProcessDecisions(emailEvents, existingEvents = [], us
  */
 export function formatExistingEventsForAgent(mongoEvents) {
   return mongoEvents.map(event => ({
+    id: event._id.toString(),
     title: event.title,
     start: new Date(event.dateTime),
     end: event.endDateTime 
       ? new Date(event.endDateTime)
       : new Date(new Date(event.dateTime).getTime() + (event.duration || 60) * 60000),
     duration: event.duration || 60,
+    priorityScore: event.priorityScore || 0,
   }));
 }
 

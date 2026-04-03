@@ -52,20 +52,6 @@ export default function Navbar() {
                 >
                   Home
                 </Link>
-                <Link
-                  to="/email-config"
-                  className={`navbar-link ${isActive("/email-config") ? "active" : ""}`}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Email Config
-                </Link>
-                <Link
-                  to="/settings"
-                  className={`navbar-link ${isActive("/settings") ? "active" : ""}`}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Settings
-                </Link>
               </div>
 
               <div className="navbar-right">
