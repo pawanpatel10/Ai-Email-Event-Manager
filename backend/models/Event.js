@@ -49,7 +49,7 @@ const eventSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["pending", "confirmed", "scheduled", "cancelled"],
+      enum: ["pending", "confirmed", "scheduled", "cancelled", "ignored"],
       default: "pending",
     },
 

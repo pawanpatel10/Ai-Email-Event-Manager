@@ -213,10 +213,18 @@ export const processUserConnectedEmails = async (user) => {
   const existingEvents = formatExistingEventsForAgent(existingEventsRaw);
   
   const userHistoryRaw = await Event.find({ userId: user._id, attendanceStatus: { $in: ["attended", "not_attended"] } });
-  const attendance_history = userHistoryRaw.map(e => ({ title: e.title, attendanceStatus: e.attendanceStatus }));
+  const attendance_history = userHistoryRaw.map(e => ({ 
+    title: e.title, 
+    attendanceStatus: e.attendanceStatus,
+    dateTime: e.dateTime ? e.dateTime.toISOString() : null,
+    duration: e.duration,
+    intentType: e.extractedData?.entities?.intentType
+  }));
 
   const userPrefs = {
-    ...(user.emailPreferences || {}),
+    ...((user.emailPreferences && typeof user.emailPreferences.toObject === 'function') 
+      ? user.emailPreferences.toObject() 
+      : (user.emailPreferences || {})),
     allowed_senders: allowedSenders,
     attendance_history: attendance_history
   };
@@ -320,8 +328,17 @@ export const processUserConnectedEmails = async (user) => {
       decision = { action: "ERROR", event: nlpEvent };
     }
 
-    const requiresUserConfirmation = ['SUGGEST_SLOTS', 'NEEDS_REVIEW'].includes(decision.action);
-    const shouldAutoSync = user.emailPreferences?.autoCalendarSync ?? false;
+    const isAutoSchedule = userPrefs.autoSchedule ?? false;
+    const requireConfirmationPref = userPrefs.requireConfirmation ?? true;
+    
+    // An event requires confirmation IF the AI engine demands it (SUGGEST_SLOTS, NEEDS_REVIEW) 
+    // OR if it decided to AUTO_SCHEDULE but the user disabled autoSchedule / enabled requireConfirmation.
+    let requiresUserConfirmation = ['SUGGEST_SLOTS', 'NEEDS_REVIEW'].includes(decision.action);
+    if (decision.action === 'AUTO_SCHEDULE' && (!isAutoSchedule || requireConfirmationPref)) {
+      requiresUserConfirmation = true;
+    }
+
+    const shouldAutoSync = userPrefs.autoCalendarSync ?? false;
     
     if (decision.action === 'PREEMPT_EXISTING' && decision.conflicts && decision.conflicts.length > 0) {
       for (const conflict of decision.conflicts) {
@@ -348,7 +365,7 @@ export const processUserConnectedEmails = async (user) => {
       priorityScore: decision.event?.priority_score || 0,
       requiresUserConfirmation,
       userConfirmed: !requiresUserConfirmation && decision.action !== 'ERROR' && decision.action !== 'IGNORE',
-      status: (!requiresUserConfirmation && decision.action !== 'ERROR' && decision.action !== 'IGNORE') ? "confirmed" : "pending",
+      status: decision.action === 'IGNORE' ? "ignored" : ((!requiresUserConfirmation && decision.action !== 'ERROR') ? "confirmed" : "pending"),
       extractedData: {
         originalText: `${subject}\n${body}`.slice(0, 3000),
         entities: candidate.entities,

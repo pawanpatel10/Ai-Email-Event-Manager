@@ -9,6 +9,39 @@ import {
 
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
 
+const updateStalePendingEvents = async (userId) => {
+  const twoDaysAgo = new Date();
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+
+  try {
+    await Event.updateMany(
+      {
+        userId,
+        status: "pending",
+        attendanceStatus: "pending",
+        createdAt: { $lt: twoDaysAgo }
+      },
+      {
+        $set: { attendanceStatus: "not_attended" }
+      }
+    );
+
+    await Event.updateMany(
+      {
+        userId,
+        status: { $in: ["confirmed", "scheduled"] },
+        attendanceStatus: "pending",
+        dateTime: { $lt: twoDaysAgo }
+      },
+      {
+        $set: { attendanceStatus: "not_attended" }
+      }
+    );
+  } catch (error) {
+    console.error("Failed to update stale pending events:", error);
+  }
+};
+
 const toEventRange = (event) => {
   const start = new Date(event?.dateTime);
   if (Number.isNaN(start.getTime())) {
@@ -121,6 +154,8 @@ const cancelConflictingEvents = async ({ user, selectedEventId, conflicts }) => 
 // @route   GET /api/events
 // @access  Private
 export const getUserEvents = asyncHandler(async (req, res) => {
+  await updateStalePendingEvents(req.user.id);
+
   const { status } = req.query;
 
   let filter = { userId: req.user.id };
@@ -427,6 +462,8 @@ export const syncEventToCalendar = asyncHandler(async (req, res) => {
 // @route   GET /api/events/pending/list
 // @access  Private
 export const getPendingEvents = asyncHandler(async (req, res) => {
+  await updateStalePendingEvents(req.user.id);
+
   const events = await Event.find({
     userId: req.user.id,
     requiresUserConfirmation: true,

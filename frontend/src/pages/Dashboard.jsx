@@ -46,6 +46,7 @@ function Home() {
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [eventForm, setEventForm] = useState({ title: '', start: '', end: '' });
+  const [slotModalEvent, setSlotModalEvent] = useState(null);
 
   // Home state
   const [aiEvents, setAiEvents] = useState([]);
@@ -268,7 +269,7 @@ function Home() {
     return fallbackStart;
   };
 
-  const displayAiEvents = eventsTab === "pending" ? pendingAiEvents : eventsTab === "all" ? aiEvents : aiEvents.filter(e => e.status === eventsTab);
+  const displayAiEvents = eventsTab === "pending" ? [...pendingAiEvents].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0)) : eventsTab === "all" ? aiEvents : aiEvents.filter(e => e.status === eventsTab);
   const now = new Date();
   const futureAiEvents = displayAiEvents.filter((e) => { const end = getEventEndTime(e); return !Number.isNaN(end.getTime()) && end >= now; });
   const pastAiEvents = displayAiEvents.filter((e) => { const end = getEventEndTime(e); return !Number.isNaN(end.getTime()) && end < now; });
@@ -277,12 +278,13 @@ function Home() {
     <div className="events-grid">
       {items.map((event) => (
         <div key={event._id} className={`event-card ${event.isPreempted ? 'preempted' : ''}`}>
-          <div className="event-header">
-            <h3>{event.title}</h3>
-            <div>
-              <span className={`status-badge ${event.status}`}>{event.status}</span>
-              {event.isPreempted && <span className="status-badge preempted" style={{marginLeft: '0.5rem', backgroundColor: '#e2e8f0', color: '#64748b'}}>Preempted</span>}
-              {event.priorityScore > 0 && <span className="status-badge priority" style={{marginLeft: '0.5rem', backgroundColor: '#1e293b', color: '#f8fafc'}}>Priority: {event.priorityScore.toFixed(0)}</span>}
+          <div className="event-header" style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+            <h3 style={{margin: '0', fontSize: '1.1rem', color: '#0f172a'}}>{event.title}</h3>
+            <div style={{display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px'}}>
+              <span className={`status-badge ${event.status}`} style={{margin: 0}}>{event.status}</span>
+              {event.isPreempted && <span className="status-badge preempted" style={{margin: 0, backgroundColor: '#e2e8f0', color: '#64748b'}}>Preempted</span>}
+              <span className="status-badge" style={{margin: 0, backgroundColor: '#3b82f6', color: '#fff'}}>Conf: {((event.confidence || 0) * 100).toFixed(0)}%</span>
+              <span className="status-badge priority" style={{margin: 0, backgroundColor: '#1e293b', color: '#f8fafc'}}>Priority: {(event.priorityScore || 0).toFixed(0)}</span>
             </div>
           </div>
           <div className="event-body">
@@ -319,20 +321,7 @@ function Home() {
                     <button onClick={() => handleConfirmAiEvent(event._id)} className="btn btn-confirm">Confirm (Original Time)</button>
                     <button onClick={() => handleRejectAiEvent(event._id)} className="btn btn-reject">Reject</button>
                     {event.extractedData?.suggestedSlots?.length > 0 && (
-                      <div className="suggested-slots" style={{ marginTop: '10px', width: '100%' }}>
-                        <h4 style={{ fontSize: '13px', marginBottom: '8px', color: '#475569' }}>Suggested Slots:</h4>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          {event.extractedData.suggestedSlots.map((slot, idx) => (
-                            <button 
-                              key={idx}
-                              onClick={() => handleConfirmAiEvent(event._id, slot)} 
-                              style={{ padding: '6px 12px', backgroundColor: '#e2e8f0', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', color: '#334155' }}
-                            >
-                              {slot.label || `${formatTime(slot.start)} - ${formatTime(slot.end)}`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                      <button onClick={() => setSlotModalEvent(event)} className="btn" style={{backgroundColor: '#8b5cf6', color: 'white'}}>Find Free Slots</button>
                     )}
                   </>
                 )}
@@ -569,6 +558,7 @@ function Home() {
                   <button className={`events-tab ${eventsTab === "pending" ? "active" : ""}`} onClick={() => setEventsTab("pending")}>Pending ({pendingAiEvents.length})</button>
                   <button className={`events-tab ${eventsTab === "scheduled" ? "active" : ""}`} onClick={() => setEventsTab("scheduled")}>Scheduled</button>
                   <button className={`events-tab ${eventsTab === "confirmed" ? "active" : ""}`} onClick={() => setEventsTab("confirmed")}>Confirmed</button>
+                  <button className={`events-tab ${eventsTab === "ignored" ? "active" : ""}`} onClick={() => setEventsTab("ignored")}>Ignored</button>
                   <button className={`events-tab ${eventsTab === "all" ? "active" : ""}`} onClick={() => setEventsTab("all")}>All Events</button>
                   
                   <div style={{flex: 1}}></div>
@@ -608,6 +598,47 @@ function Home() {
                     renderEventsGrid(pastAiEvents, true)
                   )}
                 </div>
+
+                {slotModalEvent && (
+                    <div className="modern-modal-overlay">
+                      <div className="modern-modal">
+                        <div className="modern-modal-header">
+                          <h3>Find Free Slots</h3>
+                          <button type="button" onClick={() => setSlotModalEvent(null)} className="close-btn">&times;</button>
+                        </div>
+                        <div className="modern-modal-content" style={{padding: '20px'}}>
+                          <p style={{marginBottom: '15px'}}>Select an alternative time for <strong>{slotModalEvent.title}</strong>:</p>
+                          <div className="suggested-slots-grid" style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+                            {slotModalEvent.extractedData?.suggestedSlots?.map((slot, idx) => (
+                              <button 
+                                key={idx}
+                                onClick={() => {
+                                  handleConfirmAiEvent(slotModalEvent._id, slot);
+                                  setSlotModalEvent(null);
+                                }} 
+                                style={{
+                                  padding: '12px',
+                                  backgroundColor: '#f8fafc',
+                                  border: '1px solid #cbd5e1',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                onMouseOver={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.backgroundColor = '#eff6ff'; }}
+                                onMouseOut={(e) => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                              >
+                                <span style={{fontWeight: '600', color: '#0f172a', fontSize: '14px', marginBottom: '4px'}}>{slot.label || `Alternative Slot ${idx+1}`}</span>
+                                <span style={{color: '#64748b', fontSize: '13px'}}>{formatDate(slot.start)} • {formatTime(slot.start)} - {formatTime(slot.end)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                )}
               </div>
             </>
           ) : activeTab === 'Calendar' ? (

@@ -88,7 +88,7 @@ export const syncEventToCalendar = async (eventId) => {
 // Update existing event attendance 
 export const markAttendance = async (eventId, attendanceStatus) => {
   try {
-    const response = await api.patch(`/events/${eventId}/attendance`, { attendanceStatus });
+    const response = await api.patch(`/events/${eventId}/attendance`, { action: attendanceStatus });
     return response.data;
   } catch (error) {
     throw error.response?.data || error.message;

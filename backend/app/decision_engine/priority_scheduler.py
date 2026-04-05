@@ -12,10 +12,11 @@ class PriorityScheduler:
         self.allowed_senders = allowed_senders or []
         
         # Priority weight configs (total sums to 100)
-        self.WEIGHT_SENDER = 30
-        self.WEIGHT_KEYWORDS = 25
+        self.WEIGHT_SENDER = 20
+        self.WEIGHT_KEYWORDS = 20
         self.WEIGHT_TIME_URGENCY = 20
-        self.WEIGHT_USER_BEHAVIOR = 25
+        self.WEIGHT_USER_BEHAVIOR = 20
+        self.WEIGHT_CONFIDENCE = 20
         
         # High impact keywords and their individual weights
         self.URGENT_KEYWORDS = {
@@ -43,11 +44,11 @@ class PriorityScheduler:
         """
         score = 0
         
-        # 1. Sender Importance (0 to 30)
+        # 1. Sender Importance (0 to 20)
         sender_score = self._compute_sender_score(event_data.get('fromEmail'))
         score += sender_score
         
-        # 2. Keyword Relevance (0 to 25)
+        # 2. Keyword Relevance (0 to 20)
         keyword_score = self._compute_keyword_score(
             event_data.get('title', '') + ' ' + event_data.get('event_context', '')
         )
@@ -57,9 +58,14 @@ class PriorityScheduler:
         time_score = self._compute_time_urgency(event_data.get('start'), event_data.get('date'))
         score += time_score
         
-        # 4. User Behavior (0 to 25)
+        # 4. User Behavior (0 to 20)
         behavior_score = self._compute_user_behavior_score(event_data, attendance_history)
         score += behavior_score
+
+        # 5. Confidence Score (0 to 20)
+        confidence = event_data.get('confidence', 0.5)
+        confidence_score = self.WEIGHT_CONFIDENCE * min(1.0, max(0.0, float(confidence)))
+        score += confidence_score
         
         # Cap score between 0 and 100
         return max(0, min(100, int(score)))
@@ -142,32 +148,63 @@ class PriorityScheduler:
         if not attendance_history:
             return self.WEIGHT_USER_BEHAVIOR * 0.5 # Neutral if no history
             
-        # Try to find similar past events (by title/context or sender)
-        target_title = event_data.get('title', '').lower()
+        target_title = (event_data.get('event_context', '') + " " + event_data.get('title', '')).lower()
+        target_duration = event_data.get('duration', 60)
+        target_intent = event_data.get('entities', {}).get('intentType', 'event')
         
-        attended_count = 0
-        not_attended_count = 0
+        target_date_str = event_data.get('date')
+        target_time_str = event_data.get('time')
+        target_dow = None
+        target_hour = None
+        
+        if target_date_str:
+            try: target_dow = datetime.strptime(target_date_str, "%Y-%m-%d").weekday()
+            except: pass
+        if target_time_str:
+            try: target_hour = datetime.strptime(target_time_str, "%H:%M:%S").hour
+            except: pass
+            
+        attended_weight = 0
+        not_attended_weight = 0
         
         for hist_event in attendance_history:
-            # We look at historical events that have attendance logged
             status = hist_event.get('attendanceStatus')
             if status not in ['attended', 'not_attended']:
                 continue
                 
+            match_score = 0
+            
             hist_title = hist_event.get('title', '').lower()
-            
-            # Simple similarity: overlaps in title
             if target_title and hist_title and self._are_titles_similar(target_title, hist_title):
+                match_score += 3
+            if hist_event.get('intentType') == target_intent:
+                match_score += 1
+                
+            hist_dt_str = hist_event.get('dateTime')
+            if hist_dt_str:
+                try:
+                    hist_dt = datetime.fromisoformat(hist_dt_str.replace('Z', '+00:00'))
+                    if target_dow is not None and hist_dt.weekday() == target_dow:
+                        match_score += 2
+                    if target_hour is not None and hist_dt.hour == target_hour:
+                        match_score += 1
+                except: pass
+                
+            hist_dur = hist_event.get('duration')
+            if hist_dur and target_duration and abs(hist_dur - target_duration) <= 15:
+                match_score += 1
+                
+            if match_score > 0:
                 if status == 'attended':
-                    attended_count += 3 # heavier weight for direct title match
+                    attended_weight += match_score
                 else:
-                    not_attended_count += 3
+                    not_attended_weight += match_score
                     
-        total = attended_count + not_attended_count
+        total = attended_weight + not_attended_weight
         if total == 0:
-            return self.WEIGHT_USER_BEHAVIOR * 0.5 # Default middle ground
+            return self.WEIGHT_USER_BEHAVIOR * 0.5 
             
-        ratio = attended_count / total
+        ratio = attended_weight / total
         return self.WEIGHT_USER_BEHAVIOR * ratio
         
     def _are_titles_similar(self, t1, t2):

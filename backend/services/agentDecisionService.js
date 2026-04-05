@@ -30,7 +30,9 @@ const DECISION_ENGINE_PATH = path.join(
 export async function makeAgentDecision(nlpEvent, existingEvents = [], userPrefs = null) {
   return new Promise((resolve, reject) => {
     try {
-      const python = spawn('python', [DECISION_ENGINE_PATH]);
+      const python = spawn('python', [DECISION_ENGINE_PATH], {
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      });
       let output = '';
       let errorOutput = '';
 
@@ -62,9 +64,12 @@ export async function makeAgentDecision(nlpEvent, existingEvents = [], userPrefs
         }
 
         try {
-          const decision = JSON.parse(output);
+          const jsonMatch = output.match(/\{[\s\S]*\}/);
+          const validOutput = jsonMatch ? jsonMatch[0] : output;
+          const decision = JSON.parse(validOutput);
           resolve(decision);
         } catch (parseError) {
+          console.error("Agent Engine Raw Output:", output);
           reject(new Error(`Failed to parse decision engine output: ${parseError.message}`));
         }
       });
