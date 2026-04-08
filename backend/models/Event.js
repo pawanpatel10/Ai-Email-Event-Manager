@@ -93,8 +93,7 @@ const eventSchema = new mongoose.Schema(
     },
 
     extractedData: {
-      originalText: String,
-      entities: mongoose.Schema.Types.Mixed,
+      type: mongoose.Schema.Types.Mixed,
     },
   },
   {

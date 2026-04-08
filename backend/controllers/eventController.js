@@ -1,4 +1,5 @@
 import Event from "../models/Event.js";
+import AttendanceLog from "../models/AttendanceLog.js";
 import asyncHandler from "../middlewares/asyncHandler.js";
 import User from "../models/User.js";
 import { getCalendarClient } from "../services/googleClientService.js";
@@ -10,33 +11,39 @@ import {
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
 
 const updateStalePendingEvents = async (userId) => {
-  const twoDaysAgo = new Date();
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  const oneDayAgo = new Date();
+  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
 
   try {
-    await Event.updateMany(
-      {
-        userId,
-        status: "pending",
-        attendanceStatus: "pending",
-        createdAt: { $lt: twoDaysAgo }
-      },
-      {
-        $set: { attendanceStatus: "not_attended" }
-      }
-    );
+    const pendingEvents = await Event.find({
+      userId,
+      status: "pending",
+      attendanceStatus: "pending",
+      createdAt: { $lt: oneDayAgo }
+    });
 
-    await Event.updateMany(
-      {
+    const scheduledEvents = await Event.find({
+      userId,
+      status: { $in: ["confirmed", "scheduled"] },
+      attendanceStatus: "pending",
+      dateTime: { $lt: oneDayAgo }
+    });
+
+    const allStaleEvents = [...pendingEvents, ...scheduledEvents];
+
+    if (allStaleEvents.length > 0) {
+      await Event.updateMany(
+        { _id: { $in: allStaleEvents.map(e => e._id) } },
+        { $set: { attendanceStatus: "not_attended" } }
+      );
+
+      const logs = allStaleEvents.map(e => ({
         userId,
-        status: { $in: ["confirmed", "scheduled"] },
-        attendanceStatus: "pending",
-        dateTime: { $lt: twoDaysAgo }
-      },
-      {
-        $set: { attendanceStatus: "not_attended" }
-      }
-    );
+        eventId: e._id,
+        action: "auto_marked_not_attended"
+      }));
+      await AttendanceLog.insertMany(logs);
+    }
   } catch (error) {
     console.error("Failed to update stale pending events:", error);
   }
@@ -303,6 +310,21 @@ export const confirmEvent = asyncHandler(async (req, res) => {
 
   if (shouldAutoSync && user?.googleRefreshToken) {
     try {
+      if (event.googleCalendarEventId) {
+        try {
+          const calendar = getCalendarClient({
+            accessToken: user.googleAccessToken,
+            refreshToken: user.googleRefreshToken,
+          });
+          await calendar.events.delete({
+            calendarId: "primary",
+            eventId: event.googleCalendarEventId,
+          });
+        } catch (delError) {
+          console.error("Failed to delete stale google calendar event prior to rescheduling:", delError);
+        }
+      }
+
       const calendarEventId = await createCalendarEvent({ user, event });
       event.googleCalendarEventId = calendarEventId;
       event.status = "scheduled";
@@ -386,6 +408,24 @@ export const deleteEvent = asyncHandler(async (req, res) => {
       success: false,
       message: "Not authorized to delete this event",
     });
+  }
+
+  const user = await User.findById(req.user.id);
+
+  if (event.googleCalendarEventId && user?.googleRefreshToken) {
+    try {
+      const calendar = getCalendarClient({
+        accessToken: user.googleAccessToken,
+        refreshToken: user.googleRefreshToken,
+      });
+
+      await calendar.events.delete({
+        calendarId: "primary",
+        eventId: event.googleCalendarEventId,
+      });
+    } catch (error) {
+      console.error("Failed to delete event from Google Calendar:", error);
+    }
   }
 
   await Event.findByIdAndDelete(req.params.id);
@@ -565,6 +605,12 @@ export const updateAttendance = asyncHandler(async (req, res) => {
 
   event.attendanceStatus = action;
   await event.save();
+
+  await AttendanceLog.create({
+    userId: req.user.id,
+    eventId: event._id,
+    action: action
+  });
 
   res.status(200).json({
     success: true,

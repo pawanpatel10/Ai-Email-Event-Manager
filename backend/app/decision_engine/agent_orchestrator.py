@@ -165,6 +165,17 @@ def process_event(nlp_event_dict, calendar_events_list, user_prefs=None):
             JSON.stringify(userPreferences)
         ]);
     """
+    # Sanitize inputs to Python naive datetimes to match NLP event logic
+    for e in calendar_events_list:
+        for field in ["start", "end"]:
+            val = e.get(field)
+            if isinstance(val, str):
+                try:
+                    clean_str = val.replace('Z', '').split('+')[0]
+                    e[field] = datetime.fromisoformat(clean_str)
+                except Exception:
+                    pass
+                    
     orchestrator = AgentOrchestrator(user_preferences=user_prefs)
     return orchestrator.process_event_decision(
         nlp_event_dict,

@@ -86,6 +86,7 @@ class ConflictDetector:
                 "type": "BUFFER_VIOLATION",
                 "severity": "LOW",
                 "with": existing["title"],
+                "existing_id": existing.get("id"),
                 "existing_start": e_start.strftime("%H:%M"),
                 "existing_end": e_end.strftime("%H:%M"),
                 "gap_minutes": gap,

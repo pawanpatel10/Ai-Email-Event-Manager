@@ -21,7 +21,6 @@ from slot_finder import SlotFinder
 class DecisionMaker:
 
     # Confidence thresholds for autonomous decision-making
-    AUTO_SCHEDULE_THRESHOLD = 0.85
     LLM_ESCALATION_THRESHOLD = 0.50
     IGNORE_THRESHOLD = 0.30
 
@@ -43,13 +42,6 @@ class DecisionMaker:
         self.detector = ConflictDetector(buffer_minutes=buffer_minutes)
         self.finder = SlotFinder(top_n=top_n)
         self.user_preferences = user_preferences or {}
-        
-        # Adaptive thresholds based on user preferences
-        if user_preferences:
-            self.AUTO_SCHEDULE_THRESHOLD = user_preferences.get(
-                'auto_schedule_threshold', 
-                self.AUTO_SCHEDULE_THRESHOLD
-            )
 
     def decide(self, raw_event, existing_events, user_data=None, current_priority=0):
         """
@@ -153,6 +145,14 @@ class DecisionMaker:
         preemptible_ids = [c.get("existing_id") for c in hard if c.get("existing_id") is not None]
 
         if current_priority > max_existing_priority and max_existing_priority > 0:
+            free_slots = []
+            if hard:
+                e_id = hard[0].get("existing_id")
+                e_event_obj = next((e for e in existing_events if e.get("id") == e_id), None)
+                if e_event_obj:
+                    updated_existing = [proposed] + [e for e in existing_events if e.get("id") != e_id]
+                    free_slots = self.finder.find(e_event_obj, updated_existing)
+
             return self._outcome(
                 action="PREEMPT_EXISTING",
                 proposed=proposed,
@@ -161,7 +161,7 @@ class DecisionMaker:
                     f"(max priority {max_existing_priority}). Preempting existing events."
                 ),
                 conflicts=conflict_result["conflicts"],
-                slots=[],
+                slots=free_slots,
                 raw=raw_event,
                 agent_reasoning=(
                     f"Direct time conflict detected, but Priority Scheduling determined "

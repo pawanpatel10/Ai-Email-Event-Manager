@@ -17,6 +17,7 @@ const EVENT_KEYWORDS = [
   "event",
   "room",
   "discussion",
+  "presentation",
 ];
 
 const TASK_KEYWORDS = [
@@ -114,35 +115,57 @@ const extractEventCandidate = ({ subject, body }) => {
 
   const hasEventIntent =
     matchedEventKeywords.length > 0 ||
-    /\bmeet|meeting|schedule|scheduled|call|appointment|room\b/i.test(text);
+    /\bmeet|meeting|schedule|scheduled|call|appointment|room|presentation\b/i.test(text);
 
   const hasTaskIntent =
     matchedTaskKeywords.length > 0 ||
     /\bsubmit|submission|report|deadline|due\b/i.test(text);
 
-  if (!hasEventIntent && !hasTaskIntent) {
-    return null;
-  }
+  // Ensure low-confidence (generic dates without keywords) are tracked rather than fully dropped
 
+  let cleanText = text.replace(/Time\s*:\s*(\d{1,2})\s*:\s*(\d{2})/gi, "Time: $1:$2");
   const parsedDate = hasTaskIntent
-    ? inferDeadlineDate(text)
-    : chrono.parseDate(text, new Date(), { forwardDate: true });
+    ? inferDeadlineDate(cleanText)
+    : chrono.parseDate(cleanText, new Date(), { forwardDate: true });
 
   if (!parsedDate) {
     return null;
   }
 
+  // Robustly extract Time: if chrono missed it
+  const timeMatch = text.match(/Time\s*:\s*(\d{1,2})\s*:\s*(\d{2})/i) || text.match(/Time\s*:\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (timeMatch) {
+      let hours = parseInt(timeMatch[1], 10);
+      let mins = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+      if (timeMatch[3]) {
+          const ampm = timeMatch[3].toLowerCase();
+          if (ampm === 'pm' && hours < 12) hours += 12;
+          if (ampm === 'am' && hours === 12) hours = 0;
+      }
+      parsedDate.setHours(hours, mins, 0, 0); // Applies local dev timezone (IST) for exact display
+  }
+
+  // Robustly extract Location
+  const locMatch = text.match(/Location\s*:\s*([^\n\r]+)/i);
+  const location = locMatch ? locMatch[1].trim() : "";
+
   const title = cleanSubject(subject) ||
     (hasTaskIntent ? "Task deadline from email" : "Event detected from email");
 
   const matchedKeywords = [...matchedEventKeywords, ...matchedTaskKeywords];
-  const confidenceBase = hasTaskIntent ? 0.5 : 0.55;
-  const confidence = Math.min(confidenceBase + matchedKeywords.length * 0.08, 0.95);
+  let confidence;
+  if (!hasEventIntent && !hasTaskIntent) {
+      confidence = 0.2;
+  } else {
+      const confidenceBase = hasTaskIntent ? 0.5 : 0.55;
+      confidence = Math.min(confidenceBase + matchedKeywords.length * 0.08, 0.95);
+  }
 
   return {
     title,
     description: body.slice(0, 1000),
     dateTime: parsedDate,
+    location,
     confidence,
     entities: {
       keywords: matchedKeywords,
@@ -313,7 +336,7 @@ export const processUserConnectedEmails = async (user) => {
       date: candidate.dateTime.toISOString().split('T')[0],
       time: candidate.dateTime.toISOString().split('T')[1].substring(0,8),
       duration: 60,
-      location: "",
+      location: candidate.location || "",
       event_context: candidate.title,
       confidence: candidate.confidence,
       emailId: message.id,
@@ -328,14 +351,17 @@ export const processUserConnectedEmails = async (user) => {
       decision = { action: "ERROR", event: nlpEvent };
     }
 
-    const isAutoSchedule = userPrefs.autoSchedule ?? false;
-    const requireConfirmationPref = userPrefs.requireConfirmation ?? true;
-    
-    // An event requires confirmation IF the AI engine demands it (SUGGEST_SLOTS, NEEDS_REVIEW) 
-    // OR if it decided to AUTO_SCHEDULE but the user disabled autoSchedule / enabled requireConfirmation.
-    let requiresUserConfirmation = ['SUGGEST_SLOTS', 'NEEDS_REVIEW'].includes(decision.action);
-    if (decision.action === 'AUTO_SCHEDULE' && (!isAutoSchedule || requireConfirmationPref)) {
-      requiresUserConfirmation = true;
+    let requiresUserConfirmation = false;
+    let isConfirmed = true;
+    let statusValue = "confirmed";
+
+    if (decision.action === 'IGNORE' || decision.action === 'ERROR') {
+       isConfirmed = false;
+       statusValue = "ignored";
+    } else if (decision.action === 'SUGGEST_SLOTS' || decision.action === 'NEEDS_REVIEW') {
+       requiresUserConfirmation = true;
+       isConfirmed = false;
+       statusValue = "pending";
     }
 
     const shouldAutoSync = userPrefs.autoCalendarSync ?? false;
@@ -343,11 +369,53 @@ export const processUserConnectedEmails = async (user) => {
     if (decision.action === 'PREEMPT_EXISTING' && decision.conflicts && decision.conflicts.length > 0) {
       for (const conflict of decision.conflicts) {
          if (conflict.existing_id) {
-            await Event.findByIdAndUpdate(conflict.existing_id, {
-               status: 'pending',
-               isPreempted: true,
-               requiresUserConfirmation: true,
-            });
+            const existingEvent = await Event.findById(conflict.existing_id);
+            if (existingEvent) {
+               existingEvent.status = 'pending';
+               existingEvent.isPreempted = true;
+               existingEvent.requiresUserConfirmation = true;
+               existingEvent.extractedData = {
+                  ...(existingEvent.extractedData || {}),
+                  suggestedSlots: decision.suggested_slots || []
+               };
+               
+               // Manually sever Google Calendar connection so the event physically leaves the calendar while awaiting reschedule
+               if (existingEvent.googleCalendarEventId && user.googleRefreshToken) {
+                  try {
+                     const calendar = getCalendarClient({
+                        accessToken: user.googleAccessToken,
+                        refreshToken: user.googleRefreshToken,
+                     });
+                     await calendar.events.delete({
+                        calendarId: "primary",
+                        eventId: existingEvent.googleCalendarEventId,
+                     });
+                     existingEvent.googleCalendarEventId = undefined; // Free the ID so a new one can spawn later
+                  } catch (e) {
+                     console.error("Agent failed to cleanly unschedule preempted event:", e);
+                  }
+               }
+               
+               existingEvent.markModified('extractedData');
+               await existingEvent.save();
+            }
+         }
+      }
+    }
+
+    if (decision.conflicts && decision.conflicts.some(c => c.type === 'BUFFER_VIOLATION')) {
+      for (const conflict of decision.conflicts) {
+         if (conflict.type === 'BUFFER_VIOLATION' && conflict.existing_id) {
+            const existingEvent = await Event.findById(conflict.existing_id);
+            if (existingEvent && !existingEvent.extractedData?.hasWarning) {
+               existingEvent.extractedData = {
+                  ...(existingEvent.extractedData || {}),
+                  hasWarning: true // Explicitly propagate warning badge to the OLD existing event
+               };
+               // Mongoose requires explicitly marking Mixed types as modified
+               existingEvent.markModified('extractedData');
+               await existingEvent.save();
+            }
          }
       }
     }
@@ -356,6 +424,7 @@ export const processUserConnectedEmails = async (user) => {
       userId: user._id,
       title: decision.event?.title || candidate.title,
       description: candidate.description,
+      location: candidate.location || "",
       dateTime: decision.event?.start ? new Date(decision.event.start) : candidate.dateTime,
       duration: 60,
       fromEmail: from,
@@ -364,8 +433,8 @@ export const processUserConnectedEmails = async (user) => {
       confidence: decision.event?.confidence || candidate.confidence,
       priorityScore: decision.event?.priority_score || 0,
       requiresUserConfirmation,
-      userConfirmed: !requiresUserConfirmation && decision.action !== 'ERROR' && decision.action !== 'IGNORE',
-      status: decision.action === 'IGNORE' ? "ignored" : ((!requiresUserConfirmation && decision.action !== 'ERROR') ? "confirmed" : "pending"),
+      userConfirmed: isConfirmed,
+      status: statusValue,
       extractedData: {
         originalText: `${subject}\n${body}`.slice(0, 3000),
         entities: candidate.entities,
@@ -378,7 +447,7 @@ export const processUserConnectedEmails = async (user) => {
 
     createdEvents += 1;
 
-    if (!requiresUserConfirmation && shouldAutoSync && decision.action !== 'ERROR' && decision.action !== 'IGNORE') {
+    if (shouldAutoSync && isConfirmed) {
       try {
         const calendarEventId = await createCalendarEvent({ user, event });
         event.googleCalendarEventId = calendarEventId;

@@ -83,7 +83,7 @@ export const getCalendarEvents = asyncHandler(async (req, res) => {
   const response = await calendar.events.list({
     calendarId: "primary",
     timeMin: oneMonthAgo.toISOString(),
-    maxResults: 250,
+    maxResults: 2500,
     singleEvents: true,
     orderBy: "startTime",
   });

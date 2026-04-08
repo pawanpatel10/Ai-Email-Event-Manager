@@ -64,7 +64,7 @@ function Home() {
   const [newAllowedDisplayName, setNewAllowedDisplayName] = useState("");
   const [preferences, setPreferences] = useState({
     schedulerEnabled: true,
-    autoSchedule: false,
+    autoSchedule: true,
     requireConfirmation: true,
     autoCalendarSync: true,
     eventKeywords: [],
@@ -281,7 +281,9 @@ function Home() {
           <div className="event-header" style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
             <h3 style={{margin: '0', fontSize: '1.1rem', color: '#0f172a'}}>{event.title}</h3>
             <div style={{display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px'}}>
-              <span className={`status-badge ${event.status}`} style={{margin: 0}}>{event.status}</span>
+              {event.status !== 'confirmed' && (
+                <span className={`status-badge ${event.status}`} style={{margin: 0}}>{event.status}</span>
+              )}
               {event.isPreempted && <span className="status-badge preempted" style={{margin: 0, backgroundColor: '#e2e8f0', color: '#64748b'}}>Preempted</span>}
               <span className="status-badge" style={{margin: 0, backgroundColor: '#3b82f6', color: '#fff'}}>Conf: {((event.confidence || 0) * 100).toFixed(0)}%</span>
               <span className="status-badge priority" style={{margin: 0, backgroundColor: '#1e293b', color: '#f8fafc'}}>Priority: {(event.priorityScore || 0).toFixed(0)}</span>
@@ -291,6 +293,11 @@ function Home() {
             {event.extractedData?.hasWarning && (
               <div style={{color: '#b45309', backgroundColor: '#fef3c7', padding: '0.5rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
                 ⚠️ Soft conflict warning: This event violates your calendar buffer.
+              </div>
+            )}
+            {event.status === 'ignored' && (
+              <div style={{color: '#721c24', backgroundColor: '#f8d7da', padding: '0.5rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                Less confidence score
               </div>
             )}
             <div className="event-detail"><span className="label">Date &amp; Time:</span><span className="value">{formatDate(event.dateTime)} at {formatTime(event.dateTime)}</span></div>
@@ -308,30 +315,27 @@ function Home() {
           </div>
           <div className="event-actions">
             {isPast ? (
-              event.attendanceStatus === 'pending' && (
-                 <>
-                  <button onClick={() => handleAttendance(event._id, 'attended')} className="btn btn-sync">Attended</button>
-                  <button onClick={() => handleAttendance(event._id, 'not_attended')} className="btn btn-reject">Not Attended</button>
-                 </>
-              )
+              <>
+                {event.attendanceStatus === 'pending' && (
+                   <>
+                    <button onClick={() => handleAttendance(event._id, 'attended')} className="btn btn-sync">Attended</button>
+                    <button onClick={() => handleAttendance(event._id, 'not_attended')} className="btn btn-reject">Not Attended</button>
+                   </>
+                )}
+                <button onClick={() => handleDeleteAiEvent(event._id)} className="btn btn-delete">Delete</button>
+              </>
             ) : (
               <>
-                {event.status === "pending" && (
-                  <>
-                    <button onClick={() => handleConfirmAiEvent(event._id)} className="btn btn-confirm">Confirm (Original Time)</button>
-                    <button onClick={() => handleRejectAiEvent(event._id)} className="btn btn-reject">Reject</button>
-                    {event.extractedData?.suggestedSlots?.length > 0 && (
-                      <button onClick={() => setSlotModalEvent(event)} className="btn" style={{backgroundColor: '#8b5cf6', color: 'white'}}>Find Free Slots</button>
-                    )}
-                  </>
+                {event.extractedData?.suggestedSlots?.length > 0 && event.status !== "cancelled" && (
+                  <button onClick={() => setSlotModalEvent(event)} className="btn" style={{backgroundColor: event.isPreempted ? '#f59e0b' : '#8b5cf6', color: 'white'}}>
+                    {event.isPreempted ? 'Reschedule' : 'Find Free Slots'}
+                  </button>
                 )}
-                {event.status !== "pending" && (
-                  <>
-                    {!event.googleCalendarEventId && event.status !== "cancelled" && (
-                      <button onClick={() => handleSyncAiEvent(event._id)} className="btn btn-sync">Sync</button>
-                    )}
-                    <button onClick={() => handleDeleteAiEvent(event._id)} className="btn btn-delete">Delete</button>
-                  </>
+                {!event.googleCalendarEventId && event.status !== "cancelled" && (
+                  <button onClick={() => handleSyncAiEvent(event._id)} className="btn btn-sync">Sync</button>
+                )}
+                {event.status !== "cancelled" && (
+                  <button onClick={() => handleDeleteAiEvent(event._id)} className="btn btn-delete">Delete</button>
                 )}
               </>
             )}
@@ -557,7 +561,7 @@ function Home() {
                 <div className="events-tabs">
                   <button className={`events-tab ${eventsTab === "pending" ? "active" : ""}`} onClick={() => setEventsTab("pending")}>Pending ({pendingAiEvents.length})</button>
                   <button className={`events-tab ${eventsTab === "scheduled" ? "active" : ""}`} onClick={() => setEventsTab("scheduled")}>Scheduled</button>
-                  <button className={`events-tab ${eventsTab === "confirmed" ? "active" : ""}`} onClick={() => setEventsTab("confirmed")}>Confirmed</button>
+
                   <button className={`events-tab ${eventsTab === "ignored" ? "active" : ""}`} onClick={() => setEventsTab("ignored")}>Ignored</button>
                   <button className={`events-tab ${eventsTab === "all" ? "active" : ""}`} onClick={() => setEventsTab("all")}>All Events</button>
                   
@@ -872,19 +876,7 @@ function Home() {
                         </span>
                       </label>
 
-                      <label className="preference-item">
-                        <input
-                          type="checkbox"
-                          checked={preferences.autoSchedule}
-                          onChange={(e) =>
-                            handlePreferenceChange("autoSchedule", e.target.checked)
-                          }
-                        />
-                        <span className="preference-label">Auto Schedule Events</span>
-                        <span className="preference-desc">
-                          Automatically schedule detected events without confirmation
-                        </span>
-                      </label>
+
 
                       <label className="preference-item">
                         <input

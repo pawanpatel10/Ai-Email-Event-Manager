@@ -67,6 +67,20 @@ export async function makeAgentDecision(nlpEvent, existingEvents = [], userPrefs
           const jsonMatch = output.match(/\{[\s\S]*\}/);
           const validOutput = jsonMatch ? jsonMatch[0] : output;
           const decision = JSON.parse(validOutput);
+          
+          // Re-attach Z to naive datetimes coming out of Python so Node correctly restores them as UTC
+          const ensureZ = (str) => typeof str === 'string' && !str.endsWith('Z') ? str + 'Z' : str;
+          if (decision.event) {
+              if (decision.event.start) decision.event.start = ensureZ(decision.event.start);
+              if (decision.event.end) decision.event.end = ensureZ(decision.event.end);
+          }
+          if (decision.suggested_slots) {
+              decision.suggested_slots.forEach(slot => {
+                  if (slot.start) slot.start = ensureZ(slot.start);
+                  if (slot.end) slot.end = ensureZ(slot.end);
+              });
+          }
+          
           resolve(decision);
         } catch (parseError) {
           console.error("Agent Engine Raw Output:", output);

@@ -64,27 +64,30 @@ class SlotFinder:
         cursor = day_start
 
         for busy_start, busy_end in busy:
-            if cursor + duration <= busy_start:
-                # There's a free window before this busy block
+            # While there is enough room before the busy block, continuously carve out slots
+            while cursor + duration <= busy_start and len(free_slots) < self.top_n:
                 slot_end = cursor + duration
                 free_slots.append({
                     "start": cursor,
                     "end": slot_end,
                     "label": f"{cursor.strftime('%H:%M')}–{slot_end.strftime('%H:%M')}"
                 })
+                cursor = slot_end  # March forward iteratively
+
             # Jump past this busy block
             cursor = max(cursor, busy_end)
 
-        # Check for a free window after the last busy block
-        if cursor + duration <= day_end:
+        # Check for free windows after the last busy block (until the end of the day or top_n reached)
+        while cursor + duration <= day_end and len(free_slots) < self.top_n:
             slot_end = cursor + duration
             free_slots.append({
                 "start": cursor,
                 "end": slot_end,
                 "label": f"{cursor.strftime('%H:%M')}–{slot_end.strftime('%H:%M')}"
             })
+            cursor = slot_end
 
-        return free_slots[:self.top_n]
+        return free_slots
 
     def _merge(self, intervals):
         """Merge overlapping busy intervals into clean blocks."""

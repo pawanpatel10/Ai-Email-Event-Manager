@@ -127,9 +127,7 @@ class NLPPipeline:
             confidence += 0.15
         
         # Boost if text contains specific event keywords
-        event_keywords = ['meeting', 'schedule', 'appointment', 'call', 'discussion',
-                         'session', 'demo', 'presentation', 'interview', 'review',
-                         'deadline', 'submit', 'due', 'delivery']
+        from event_classifier import event_keywords
         keyword_count = sum(1 for kw in event_keywords if kw.lower() in text.lower())
         
         if keyword_count > 0:
