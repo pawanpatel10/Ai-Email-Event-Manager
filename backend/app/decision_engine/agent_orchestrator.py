@@ -57,8 +57,14 @@ class AgentOrchestrator:
 
         allowed_senders = user_data.get('allowed_senders', []) if user_data else []
         attendance_history = user_data.get('attendance_history', []) if user_data else []
+        sender_pattern = user_data.get('sender_pattern', {}) if user_data else {}
+        keyword_pattern = user_data.get('keyword_pattern', {}) if user_data else {}
         
-        priority_scheduler = PriorityScheduler(allowed_senders=allowed_senders)
+        priority_scheduler = PriorityScheduler(
+            allowed_senders=allowed_senders,
+            sender_pattern=sender_pattern,
+            keyword_pattern=keyword_pattern
+        )
         current_priority = priority_scheduler.compute_priority(nlp_output, attendance_history=attendance_history)
 
         # Make the autonomous decision

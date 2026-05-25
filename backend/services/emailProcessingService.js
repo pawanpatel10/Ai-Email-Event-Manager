@@ -101,7 +101,7 @@ const getHeader = (headers = [], name) => {
 const cleanSubject = (subject = "") =>
   subject.replace(/^(re|fwd?)\s*:\s*/i, "").trim();
 
-const extractEventCandidate = ({ subject, body }) => {
+const extractEventCandidate = ({ subject, body, fromEmail = null, allowedSenders = [] }) => {
   const text = `${subject}\n${body}`.trim();
   const lower = text.toLowerCase();
 
@@ -146,26 +146,86 @@ const extractEventCandidate = ({ subject, body }) => {
   }
 
   // Robustly extract Location
-  const locMatch = text.match(/Location\s*:\s*([^\n\r]+)/i);
-  const location = locMatch ? locMatch[1].trim() : "";
+  let location = "";
+  const locMatch = text.match(/Location\s*:\s*([^\n\r]+)/i) || 
+                   text.match(/in\s+(?:the\s+)?([A-Za-z0-9\s#\-]+(?:Room|Hall|Office|Suite|Conf|Conference Room|Hub|Cafe))\b/i) ||
+                   text.match(/(?:at|on)\s+(Zoom|Google Meet|Teams|MS Teams|Skype)\b/i);
+  if (locMatch) {
+    location = locMatch[1].trim();
+  }
+
+  // Dynamic Duration Parsing
+  let duration = 60; // Default
+  const durationMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr|min|minute)s?\b/i);
+  if (durationMatch) {
+    const val = parseFloat(durationMatch[1]);
+    const unit = durationMatch[0].toLowerCase();
+    if (unit.includes("hour") || unit.includes("hr")) {
+      duration = Math.round(val * 60);
+    } else {
+      duration = Math.round(val);
+    }
+  }
 
   const title = cleanSubject(subject) ||
     (hasTaskIntent ? "Task deadline from email" : "Event detected from email");
 
   const matchedKeywords = [...matchedEventKeywords, ...matchedTaskKeywords];
-  let confidence;
-  if (!hasEventIntent && !hasTaskIntent) {
-      confidence = 0.2;
-  } else {
-      const confidenceBase = hasTaskIntent ? 0.5 : 0.55;
-      confidence = Math.min(confidenceBase + matchedKeywords.length * 0.08, 0.95);
+  
+  // Robust confidence score calculation
+  let confidence = 0.2; // Base confidence
+  
+  // 1. Date and Time Check
+  if (parsedDate) {
+    confidence += 0.25;
+    // Specific time check (not 00:00:00)
+    if (parsedDate.getHours() !== 0 || parsedDate.getMinutes() !== 0 || parsedDate.getSeconds() !== 0) {
+      confidence += 0.15;
+    }
   }
+  
+  // 2. Intent Check
+  if (hasEventIntent || hasTaskIntent) {
+    confidence += 0.1;
+  }
+  
+  // 3. Keyword Match Boost
+  const uniqueMatchedKeywords = Array.from(new Set(matchedKeywords));
+  confidence += Math.min(0.2, uniqueMatchedKeywords.length * 0.05);
+  
+  // 4. Whitelisted Sender Boost
+  if (fromEmail && allowedSenders && allowedSenders.length > 0) {
+    const normalizedFrom = fromEmail.toLowerCase();
+    const isWhitelisted = allowedSenders.some(sender => 
+      normalizedFrom.toLowerCase().includes(sender.toLowerCase()) || 
+      sender.toLowerCase().includes(normalizedFrom)
+    );
+    if (isWhitelisted) {
+      confidence += 0.15;
+    }
+  }
+  
+  // 5. Room / Meeting Location Boost
+  if (location) {
+    confidence += 0.1;
+  }
+  
+  // 6. Conditional / Ambiguity Penalty
+  const negativeKeywords = ["maybe", "tentative", "might", "subject to change", "cancelled", "postponed", "if possible"];
+  const hasNegative = negativeKeywords.some(kw => lower.includes(kw));
+  if (hasNegative) {
+    confidence -= 0.2;
+  }
+  
+  // Capped between 0.0 and 1.0
+  confidence = Math.min(1.0, Math.max(0.0, parseFloat(confidence.toFixed(2))));
 
   return {
     title,
     description: body.slice(0, 1000),
     dateTime: parsedDate,
     location,
+    duration,
     confidence,
     entities: {
       keywords: matchedKeywords,
@@ -244,12 +304,56 @@ export const processUserConnectedEmails = async (user) => {
     intentType: e.extractedData?.entities?.intentType
   }));
 
+  // Build Database Historical Confirmation Pattern Analysis
+  const allHistoricalEvents = await Event.find({ userId: user._id });
+  const sender_stats = {};
+  const keyword_stats = {};
+
+  for (const ev of allHistoricalEvents) {
+    const sender = ev.fromEmail ? ev.fromEmail.toLowerCase() : "";
+    if (sender) {
+      if (!sender_stats[sender]) {
+        sender_stats[sender] = { confirmed: 0, total: 0 };
+      }
+      sender_stats[sender].total += 1;
+      if (ev.status === "confirmed" || ev.status === "scheduled") {
+        sender_stats[sender].confirmed += 1;
+      }
+    }
+
+    const keywords = ev.extractedData?.entities?.keywords || [];
+    for (const kw of keywords) {
+      const lowerKw = kw.toLowerCase();
+      if (!keyword_stats[lowerKw]) {
+        keyword_stats[lowerKw] = { confirmed: 0, total: 0 };
+      }
+      keyword_stats[lowerKw].total += 1;
+      if (ev.status === "confirmed" || ev.status === "scheduled") {
+        keyword_stats[lowerKw].confirmed += 1;
+      }
+    }
+  }
+
+  const sender_pattern = {};
+  for (const sender in sender_stats) {
+    const stats = sender_stats[sender];
+    sender_pattern[sender] = stats.total > 0 ? (stats.confirmed / stats.total) : 0;
+  }
+
+  const keyword_pattern = {};
+  for (const kw in keyword_stats) {
+    const stats = keyword_stats[kw];
+    keyword_pattern[kw] = stats.total > 0 ? (stats.confirmed / stats.total) : 0;
+  }
+
   const userPrefs = {
     ...((user.emailPreferences && typeof user.emailPreferences.toObject === 'function') 
       ? user.emailPreferences.toObject() 
       : (user.emailPreferences || {})),
     allowed_senders: allowedSenders,
-    attendance_history: attendance_history
+    attendance_history: attendance_history,
+    sender_pattern: sender_pattern,
+    keyword_pattern: keyword_pattern
   };
 
   const gmail = getGmailClient({
@@ -332,10 +436,20 @@ export const processUserConnectedEmails = async (user) => {
       continue;
     }
 
+    const year = candidate.dateTime.getFullYear();
+    const month = String(candidate.dateTime.getMonth() + 1).padStart(2, '0');
+    const day = String(candidate.dateTime.getDate()).padStart(2, '0');
+    const localDateStr = `${year}-${month}-${day}`;
+
+    const hours = String(candidate.dateTime.getHours()).padStart(2, '0');
+    const minutes = String(candidate.dateTime.getMinutes()).padStart(2, '0');
+    const seconds = String(candidate.dateTime.getSeconds()).padStart(2, '0');
+    const localTimeStr = `${hours}:${minutes}:${seconds}`;
+
     const nlpEvent = {
-      date: candidate.dateTime.toISOString().split('T')[0],
-      time: candidate.dateTime.toISOString().split('T')[1].substring(0,8),
-      duration: 60,
+      date: localDateStr,
+      time: localTimeStr,
+      duration: candidate.duration || 60,
       location: candidate.location || "",
       event_context: candidate.title,
       confidence: candidate.confidence,
@@ -344,11 +458,33 @@ export const processUserConnectedEmails = async (user) => {
     };
 
     let decision;
-    try {
-      decision = await makeAgentDecision(nlpEvent, existingEvents, userPrefs);
-    } catch (e) {
-      console.error("[AgentDecision Error]", e);
-      decision = { action: "ERROR", event: nlpEvent };
+    if (candidate.confidence < 0.3) {
+      decision = {
+        action: "IGNORE",
+        reason: `Confidence score (${candidate.confidence}) is below 0.3. Event ignored.`,
+        event: nlpEvent,
+        conflicts: [],
+        suggested_slots: []
+      };
+    } else if (candidate.confidence < 0.5) {
+      decision = {
+        action: "ESCALATE_AGENT",
+        reason: `Confidence score (${candidate.confidence}) is between 0.3 and 0.5. Sent to LLM escalation section.`,
+        event: nlpEvent,
+        conflicts: [],
+        suggested_slots: []
+      };
+    } else {
+      try {
+        decision = await makeAgentDecision(nlpEvent, existingEvents, userPrefs);
+      } catch (e) {
+        console.error("[AgentDecision Error]", e);
+        decision = { 
+          action: "ERROR", 
+          event: nlpEvent,
+          reason: e.message || "Failed to make agent decision."
+        };
+      }
     }
 
     let requiresUserConfirmation = false;
@@ -358,13 +494,22 @@ export const processUserConnectedEmails = async (user) => {
     if (decision.action === 'IGNORE' || decision.action === 'ERROR') {
        isConfirmed = false;
        statusValue = "ignored";
+    } else if (decision.action === 'ESCALATE_AGENT') {
+       isConfirmed = false;
+       statusValue = "escalated";
     } else if (decision.action === 'SUGGEST_SLOTS' || decision.action === 'NEEDS_REVIEW') {
        requiresUserConfirmation = true;
        isConfirmed = false;
        statusValue = "pending";
     }
 
-    const shouldAutoSync = userPrefs.autoCalendarSync ?? false;
+    // Determine calendar sync: auto-schedule for confidence >= 0.5 events with no or soft conflicts,
+    // or when new event priority is higher than the existing event priority.
+    const isAutoSchedulable = candidate.confidence >= 0.5 && 
+                              (decision.action === 'AUTO_SCHEDULE' || decision.action === 'PREEMPT_EXISTING');
+    
+    // Always sync auto-scheduled events automatically to the Google Calendar
+    const shouldAutoSync = isAutoSchedulable ? true : (userPrefs.autoCalendarSync ?? false);
     
     if (decision.action === 'PREEMPT_EXISTING' && decision.conflicts && decision.conflicts.length > 0) {
       for (const conflict of decision.conflicts) {
@@ -374,9 +519,20 @@ export const processUserConnectedEmails = async (user) => {
                existingEvent.status = 'pending';
                existingEvent.isPreempted = true;
                existingEvent.requiresUserConfirmation = true;
+               
+               // Construct suggested slots for the preempted existing event:
+               // Include its original proposed time plus the alternatives returned by the scheduler
+               const preemptedOriginalSlot = {
+                 start: existingEvent.dateTime.toISOString(),
+                 end: existingEvent.endDateTime 
+                   ? existingEvent.endDateTime.toISOString() 
+                   : new Date(existingEvent.dateTime.getTime() + (existingEvent.duration || 60) * 60000).toISOString(),
+                 label: "Original Proposed Time"
+               };
+               
                existingEvent.extractedData = {
                   ...(existingEvent.extractedData || {}),
-                  suggestedSlots: decision.suggested_slots || []
+                  suggestedSlots: [preemptedOriginalSlot, ...(decision.suggested_slots || [])]
                };
                
                // Manually sever Google Calendar connection so the event physically leaves the calendar while awaiting reschedule
@@ -420,13 +576,24 @@ export const processUserConnectedEmails = async (user) => {
       }
     }
 
+    // Construct suggested slots for the current event if it went to pending (SUGGEST_SLOTS / NEEDS_REVIEW)
+    let currentSuggestedSlots = [];
+    if (statusValue === "pending") {
+      const originalSlot = {
+        start: candidate.dateTime.toISOString(),
+        end: new Date(candidate.dateTime.getTime() + (candidate.duration || 60) * 60000).toISOString(),
+        label: "Original Proposed Time"
+      };
+      currentSuggestedSlots = [originalSlot, ...(decision.suggested_slots || [])];
+    }
+
     const event = await Event.create({
       userId: user._id,
       title: decision.event?.title || candidate.title,
       description: candidate.description,
       location: candidate.location || "",
       dateTime: decision.event?.start ? new Date(decision.event.start) : candidate.dateTime,
-      duration: 60,
+      duration: candidate.duration || 60,
       fromEmail: from,
       emailSubject: subject,
       emailId: message.id,
@@ -440,8 +607,8 @@ export const processUserConnectedEmails = async (user) => {
         entities: candidate.entities,
         decisionAction: decision.action,
         decisionReason: decision.reason,
-        suggestedSlots: decision.suggested_slots || [],
-        hasWarning: decision.conflicts && decision.conflicts.some(c => c.type === 'BUFFER_VIOLATION'),
+        suggestedSlots: currentSuggestedSlots,
+        hasWarning: decision.action === 'AUTO_SCHEDULE' && decision.conflicts && decision.conflicts.some(c => c.type === 'BUFFER_VIOLATION'),
       },
     });
 

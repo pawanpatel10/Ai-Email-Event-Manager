@@ -8,8 +8,10 @@ from datetime import datetime
 import re
 
 class PriorityScheduler:
-    def __init__(self, allowed_senders=None):
+    def __init__(self, allowed_senders=None, sender_pattern=None, keyword_pattern=None):
         self.allowed_senders = allowed_senders or []
+        self.sender_pattern = sender_pattern or {}
+        self.keyword_pattern = keyword_pattern or {}
         
         # Priority weight configs (total sums to 100)
         self.WEIGHT_SENDER = 20
@@ -22,11 +24,27 @@ class PriorityScheduler:
         self.URGENT_KEYWORDS = {
             'urgent': 1.0,
             'emergency': 1.0,
+            'critical': 1.0,
+            'blocker': 1.0,
+            'incident': 1.0,
+            'outage': 1.0,
+            'asap': 0.9,
+            'interview': 0.9,
             'important': 0.8,
             'deadline': 0.8,
-            'interview': 0.9,
             'client': 0.8,
+            'investor': 0.9,
+            'board': 0.8,
+            'quarterly': 0.7,
+            'q1': 0.7,
+            'q2': 0.7,
+            'q3': 0.7,
+            'q4': 0.7,
             'manager': 0.7,
+            'kickoff': 0.6,
+            'sprint': 0.6,
+            'planning': 0.5,
+            'standup': 0.5,
             'sync': 0.3,
             'update': 0.3
         }
@@ -75,20 +93,33 @@ class PriorityScheduler:
             return 0
             
         from_email = from_email.lower()
+        
+        # Check database historical pattern analysis (Sender Confirmation Rate)
+        # If we have historical data for this sender, it directly scales the weight
+        if self.sender_pattern and from_email in self.sender_pattern:
+            return self.WEIGHT_SENDER * self.sender_pattern[from_email]
+            
+        # Check exact whitelist
         for allowed in self.allowed_senders:
             if isinstance(allowed, dict) and allowed.get('email', '').lower() == from_email:
                 return self.WEIGHT_SENDER
             elif isinstance(allowed, str) and allowed.lower() == from_email:
                 return self.WEIGHT_SENDER
                 
-        # If not exactly allowed, but from same domain as allowed, give partial
+        # Check domain whitelist match
         domain = from_email.split('@')[-1] if '@' in from_email else ''
         for allowed in self.allowed_senders:
             allowed_email = allowed.get('email', '') if isinstance(allowed, dict) else allowed
-            if f'@{domain}' in allowed_email:
-                return self.WEIGHT_SENDER * 0.5
+            if f'@{domain}' in allowed_email.lower():
+                return self.WEIGHT_SENDER * 0.8  # Strong domain match
                 
-        return self.WEIGHT_SENDER * 0.2  # Base score for any sender
+        # Public domains penalty (unrecognized public domains get lower score)
+        public_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'mail.ru', 'icloud.com']
+        if domain in public_domains:
+            return self.WEIGHT_SENDER * 0.2
+            
+        # Unrecognized custom/corporate domains get a moderate score
+        return self.WEIGHT_SENDER * 0.5
 
     def _compute_keyword_score(self, text):
         if not text:
@@ -97,6 +128,19 @@ class PriorityScheduler:
         text = text.lower()
         words = re.findall(r'\b\w+\b', text)
         
+        # Calculate dynamic keyword weights based on database confirmation patterns
+        if self.keyword_pattern:
+            dynamic_weight = 0.0
+            found = False
+            for word in words:
+                if word in self.keyword_pattern:
+                    dynamic_weight += self.keyword_pattern[word]
+                    found = True
+            if found:
+                relevance = min(1.0, dynamic_weight)
+                return self.WEIGHT_KEYWORDS * relevance
+                
+        # Fallback to static URGENT_KEYWORDS dictionary
         relevance = 0.0
         for word in words:
             if word in self.URGENT_KEYWORDS:
@@ -138,9 +182,11 @@ class PriorityScheduler:
         if days_diff <= 1:
             return self.WEIGHT_TIME_URGENCY # Next 24-48 hours
         if days_diff <= 3:
-            return self.WEIGHT_TIME_URGENCY * 0.8
+            return self.WEIGHT_TIME_URGENCY * 0.85
         if days_diff <= 7:
-            return self.WEIGHT_TIME_URGENCY * 0.5
+            return self.WEIGHT_TIME_URGENCY * 0.6
+        if days_diff <= 14:
+            return self.WEIGHT_TIME_URGENCY * 0.4
             
         return self.WEIGHT_TIME_URGENCY * 0.2
 

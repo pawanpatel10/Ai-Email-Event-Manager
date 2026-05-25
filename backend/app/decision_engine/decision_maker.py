@@ -144,7 +144,7 @@ class DecisionMaker:
         max_existing_priority = max([c.get("existing_priority", 0) for c in hard] + [0])
         preemptible_ids = [c.get("existing_id") for c in hard if c.get("existing_id") is not None]
 
-        if current_priority > max_existing_priority and max_existing_priority > 0:
+        if current_priority > max_existing_priority:
             free_slots = []
             if hard:
                 e_id = hard[0].get("existing_id")

@@ -300,6 +300,11 @@ function Home() {
                 Less confidence score
               </div>
             )}
+            {event.status === 'escalated' && (
+              <div style={{color: '#856404', backgroundColor: '#fff3cd', padding: '0.5rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                🤖 LLM Escalation: Confidence score (30%-50%) requires complex reasoning.
+              </div>
+            )}
             <div className="event-detail"><span className="label">Date &amp; Time:</span><span className="value">{formatDate(event.dateTime)} at {formatTime(event.dateTime)}</span></div>
             {event.location && <div className="event-detail"><span className="label">Location:</span><span className="value">{event.location}</span></div>}
             {event.duration && <div className="event-detail"><span className="label">Duration:</span><span className="value">{event.duration} mins</span></div>}
@@ -326,17 +331,15 @@ function Home() {
               </>
             ) : (
               <>
-                {event.extractedData?.suggestedSlots?.length > 0 && event.status !== "cancelled" && (
-                  <button onClick={() => setSlotModalEvent(event)} className="btn" style={{backgroundColor: event.isPreempted ? '#f59e0b' : '#8b5cf6', color: 'white'}}>
-                    {event.isPreempted ? 'Reschedule' : 'Find Free Slots'}
+                {event.extractedData?.suggestedSlots?.length > 0 && (
+                  <button onClick={() => setSlotModalEvent(event)} className="btn" style={{backgroundColor: (event.isPreempted || event.status === 'cancelled') ? '#f59e0b' : '#8b5cf6', color: 'white'}}>
+                    {(event.isPreempted || event.status === 'cancelled') ? 'Reschedule' : 'Find Free Slots'}
                   </button>
                 )}
                 {!event.googleCalendarEventId && event.status !== "cancelled" && (
                   <button onClick={() => handleSyncAiEvent(event._id)} className="btn btn-sync">Sync</button>
                 )}
-                {event.status !== "cancelled" && (
-                  <button onClick={() => handleDeleteAiEvent(event._id)} className="btn btn-delete">Delete</button>
-                )}
+                <button onClick={() => handleDeleteAiEvent(event._id)} className="btn btn-delete">Delete</button>
               </>
             )}
           </div>
@@ -561,7 +564,7 @@ function Home() {
                 <div className="events-tabs">
                   <button className={`events-tab ${eventsTab === "pending" ? "active" : ""}`} onClick={() => setEventsTab("pending")}>Pending ({pendingAiEvents.length})</button>
                   <button className={`events-tab ${eventsTab === "scheduled" ? "active" : ""}`} onClick={() => setEventsTab("scheduled")}>Scheduled</button>
-
+                  <button className={`events-tab ${eventsTab === "escalated" ? "active" : ""}`} onClick={() => setEventsTab("escalated")}>LLM Escalation ({aiEvents.filter(e => e.status === "escalated").length})</button>
                   <button className={`events-tab ${eventsTab === "ignored" ? "active" : ""}`} onClick={() => setEventsTab("ignored")}>Ignored</button>
                   <button className={`events-tab ${eventsTab === "all" ? "active" : ""}`} onClick={() => setEventsTab("all")}>All Events</button>
                   
